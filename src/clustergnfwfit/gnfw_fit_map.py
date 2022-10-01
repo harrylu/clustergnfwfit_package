@@ -8,7 +8,7 @@ import beam_utils
 import plot_utils
 import mpfit_gNFW
 
-def gnfw_fit_map(fpath_dict, beam_map_width,
+def fit_map(fpath_dict, beam_map_width,
                 dec, ra, map_radius, R500, init_params, fixed_params,
                 show_map_plots=False, verbose=False, num_processes=4):
     """Runs mpfit on the specified map

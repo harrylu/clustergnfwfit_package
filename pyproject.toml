@@ -21,6 +21,6 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = ""
-"Bug Tracker" = ""
+"Homepage" = "https://github.com/harrylu/clustergnfwfit_package"
+"Bug Tracker" = "https://github.com/harrylu/clustergnfwfit_package/issues"
 "ACTPlank Data" = "https://lambda.gsfc.nasa.gov/product/act/actpol_prod_table.html"

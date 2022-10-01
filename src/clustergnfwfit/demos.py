@@ -1,6 +1,7 @@
 
 import os.path
 import gnfw_fit_map
+
 def demo_fit():
     """Demonstrates gnfw_fit_map.gnfw_fit_map
     """
@@ -42,7 +43,7 @@ def demo_fit():
     init_params = (-22,      -45,     170,    0,  0,      0,      0)
     fixed_params = (False, False, True, False, False, False, False)
     num_processes = 7   # we will use 7 cores
-    params, perror = gnfw_fit_map.gnfw_fit_map(fpath_dict, BEAM_MAP_WIDTH,
+    params, perror = gnfw_fit_map.fit_map(fpath_dict, BEAM_MAP_WIDTH,
                                             dec, ra, map_radius, R500,
                                             init_params, fixed_params,
                                             True, True, num_processes)
