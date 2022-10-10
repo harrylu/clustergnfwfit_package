@@ -1,7 +1,7 @@
 import numpy as np
 
-from mpfit import mpfit
-import eval_gnfw
+from .mpfit import mpfit
+from . import eval_gnfw
 
 
 def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None, err90=None, beam_handler_150=None, beam_handler_90=None, excise_regions=None, num_processes=None):

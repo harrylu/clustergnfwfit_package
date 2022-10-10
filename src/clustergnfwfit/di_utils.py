@@ -1,5 +1,5 @@
 import numpy as np
-from conversions import convert_microkelvin_to_mjysr
+from .conversions import convert_microkelvin_to_mjysr
 
 
 def get_R2500_avg(map, arcseconds_per_pixel, R2500):

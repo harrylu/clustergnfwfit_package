@@ -4,9 +4,9 @@ from pixell import enmap, reproject, utils
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-import beam_utils
-import plot_utils
-import mpfit_gNFW
+from . import beam_utils
+from . import plot_utils
+from . import mpfit_gNFW
 
 def fit_map(fpath_dict, beam_map_width,
                 dec, ra, map_radius, R500, init_params, fixed_params,

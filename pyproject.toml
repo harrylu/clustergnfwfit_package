@@ -1,10 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = [
+  "setuptools>=65.4.1",
+  ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "clustergnfwfit"
-version = "0.0.1"
+version = "0.0.6"
+dependencies = [
+  "astropy>=5.1",
+  "matplotlib>=3.5.3",
+  "numpy>=1.23.2",
+  "pixell>=0.16.0",
+  "scipy>=1.9.0"
+  ]
 authors = [
   { name="Harry Lu", email="realharrylu@gmail.com" },
 ]

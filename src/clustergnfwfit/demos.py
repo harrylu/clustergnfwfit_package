@@ -1,6 +1,6 @@
 
 import os.path
-import gnfw_fit_map
+from . import gnfw_fit_map
 
 def demo_fit():
     """Demonstrates gnfw_fit_map.gnfw_fit_map
@@ -51,9 +51,9 @@ def demo_fit():
 
 
 from matplotlib import pyplot as plt
-import eval_gnfw
-import di_utils
-from conversions import convert_microkelvin_to_mjysr
+from .import eval_gnfw
+from . import di_utils
+from .conversions import convert_microkelvin_to_mjysr
 def demo_fits_maps_and_di():
     """Demonstrates generating the maps to be put into the fits file as well
     as getting the di value
