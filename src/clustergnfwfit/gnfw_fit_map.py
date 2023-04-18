@@ -4,9 +4,9 @@ from pixell import enmap, reproject, utils
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from . import beam_utils
-from . import plot_utils
-from . import mpfit_gNFW
+import beam_utils
+import plot_utils
+import mpfit_gNFW
 
 def fit_map(fpath_dict, beam_map_width,
                 dec, ra, map_radius, R500, init_params, fixed_params,
@@ -76,7 +76,7 @@ def fit_map(fpath_dict, beam_map_width,
     # is only correct if the wcs is CAR (or maybe just original wcs from FITS file)
     # and also, we cant reproject.thumbnails after enmap_from_healpix or bad things happen
     enmap_cmb = reproject.enmap_from_healpix(fpath_dict['cmb'], enmap_150.shape, enmap_150.wcs, 
-                                        ncomp=1, unit=1e-6, lmax=6000,rot='gal,equ')[0]
+                                        ncomp=3, unit=1e-6, lmax=6000,rot='gal,equ')[0]
     
     # subtract the cmb from the actplanck maps
     enmap_150 -= enmap_cmb
