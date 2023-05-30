@@ -1,7 +1,7 @@
 import numpy as np
 
 from mpfit import mpfit
-import eval_gnfw
+import ellipsoid_model as ellipsoid_model
 
 
 def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None, err90=None, beam_handler_150=None, beam_handler_90=None, excise_regions=None, num_processes=None):
@@ -31,13 +31,12 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
     # computed.  It will always be None if MPFIT is called with default
     # flag.
 
-    P0_150, P0_90, RS, x_offset, y_offset, c_150, c_90 = p
+    theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = p
 
     psf_padding = beam_handler_150.get_pad_pixels()
     # can use this to make the 90 model beause only P0 is different
-    model_150_no_c = eval_gnfw.make_los_gnfw_grid(P0_150, RS, R500,
+    model_150_no_c = ellipsoid_model.interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30, R500, x_offset, y_offset,
                         y150.shape[0] + psf_padding, y150.shape[1] + psf_padding,
-                        x_offset, y_offset, arcseconds_per_pixel=30, epsrel=1e-2,
                         num_processes=num_processes)
     # use 150 to make 90 model because only P0 is different
     model_90_no_c = np.copy(model_150_no_c) * (P0_90/P0_150)
@@ -86,7 +85,7 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
     return [status, np.concatenate((deviation150, deviation90))]
 
 
-def mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90, err150, err90, init_params, fixed_params, excise_regions=None, num_processes=4):
+def mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90, err150, err90, parinfo, excise_regions=None, num_processes=4):
     """Uses mpfit to simultaneously fit 2 maps to one gNFW model that only differs with different P0s and cs for each.
 
     Args:
@@ -99,7 +98,7 @@ def mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90
         err150 (2d array): contains one-sigma errors corresponding to the values of y150. (microKelvins)
         err90 (2d array): contains one-sigma errors corresponding to the values of y90. (microKelvins)
         init_params (iterable): (P0_150, P0_90, RS (arcseconds), x_offset (pixels), y_offset (pixels), c_150, c_90)
-        fixed_params (iterable of booleans): Whether each parameter is fixed 
+        fixed_params (list of dictionaries): parinfo as specified in mpfit docs 
         excise_regions (list, optional): list of tuples in form of (x, y, width, height)
         representing rectangular regions to be excluded. Coordinate system
         is (0, 0) top left going positive to the down and right. Defaults to None.
@@ -110,27 +109,11 @@ def mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90
         e.g. mpfit.status, mpfit.errmsg, mpfit.params, mpfit.perror, mpfit.niter, mpfit.covar.
         .status
     """
-
-    # no point editing value and fixed; they are passed in instead
-    parinfo = [
-        {'value': 0., 'fixed': None, 'limited': [0, True], 'limits': [0., -0.01]},  # P0_150
-        {'value': 0., 'fixed': None, 'limited': [0, True], 'limits': [0., -0.01]},  # P0_90
-        {'value': 0., 'fixed': None, 'limited': [0, 0], 'limits': [0., 0.]},  # RS
-        {'value': 0., 'fixed': None, 'limited': [True, True], 'limits': [-300, 300]},  # x_offset
-        {'value': 0., 'fixed': None, 'limited': [True, True], 'limits': [-300, 300]},  # y_offset
-        {'value': 0., 'fixed': None, 'limited': [0, 0], 'limits': [0., 0.]},  # c_150
-        {'value': 0., 'fixed': None, 'limited': [0, 0], 'limits': [0., 0.]},  # c_90
-    ]
-    # set initial params and whether they are fixed
-    p0 = np.array(init_params, dtype='float64')  # initial conditions
-    for is_fixed, pinfo in zip(fixed_params, parinfo):
-        pinfo['fixed'] = is_fixed
-    
     
     fa = {'R500': R500, 'y150': y150, 'y90': y90, 'err150': err150, 'err90': err90,
           'beam_handler_150': beam_handler_150, 'beam_handler_90': beam_handler_90,
           'excise_regions': excise_regions, 'num_processes': num_processes}
-    m = mpfit(myfunctgnfw_simul, p0, parinfo=parinfo, functkw=fa)
+    m = mpfit(myfunctgnfw_simul, parinfo=parinfo, functkw=fa)
 
     return m
 

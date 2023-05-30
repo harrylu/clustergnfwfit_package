@@ -65,7 +65,7 @@ def make_fits(fpath, ref_ra, ref_dec, data, di_90, sigma_90, di_150, sigma_150):
     hdr['PMWDI'] = PMWDI
 
     hdr['CTYPE1'] = ('RA---SFL', "Coordinate Type")
-    hdr['CTYPE2'] = ('RA---SFL', "Coordinate Type")
+    hdr['CTYPE2'] = ('DEC---SFL', "Coordinate Type")
 
     hdr['CD1_1'] = (-0.00111111, "Degrees / Pixel")
     hdr['CD1_2'] = (-0.00000, "Degrees / Pixel")
@@ -82,13 +82,13 @@ def make_fits(fpath, ref_ra, ref_dec, data, di_90, sigma_90, di_150, sigma_150):
     hdr['PV1_1'] = (0.00000000000, "Projection parameters")
     hdr['PV1_2'] = (0.00000000000, "Projection parameters")
     hdr['PV1_3'] = (180.000000000, "Projection parameters")
-    hdr['PV1_3'] = (90.000000000, "Projection parameters")
+    hdr['PV1_4'] = (90.000000000, "Projection parameters")
     
     hdr['RADESYS'] = ('FK5', "Reference frame")
 
     primary = fits.PrimaryHDU(data=data, header=hdr)
     hdul = fits.HDUList([primary])
-    hdul.writeto(fpath)
+    hdul.writeto(fpath, overwrite=True)
 
 if __name__ == "__main__":
     pass

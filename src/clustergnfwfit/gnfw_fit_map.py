@@ -6,10 +6,9 @@ from matplotlib import cm
 
 import beam_utils
 import plot_utils
-import mpfit_gNFW
 
 def fit_map(fpath_dict, beam_map_width,
-                dec, ra, map_radius, R500, init_params, fixed_params,
+                dec, ra, map_radius, R500, parinfo, fit_func,
                 show_map_plots=False, verbose=False, num_processes=4):
     """Runs mpfit on the specified map
 
@@ -24,8 +23,7 @@ def fit_map(fpath_dict, beam_map_width,
         ra (tuple): right ascension in (hours, minutes, seconds)
         map_radius (float): in arcminutes; radial width of the map that will be extracted
         R500 (float): R500 value (arcseconds)
-        init_params (iterable): (P0_150, P0_90, RS (arcseconds), x_offset (pixels), y_offset (pixels), c_150, c_90)
-        fixed_params (iterable of booleans): Whether each parameter is fixed 
+        parinfo (list of dictionaries): parinfo as specified in mpfit docs 
         show_map_plots (bool, optional): Whether to show matplotlib plots. Defaults to False.
         verbose (bool, optional): Whether to log to console. Defaults to False.
         num_processes (int, optional): Max number of cores to use. Defaults to 4.
@@ -76,11 +74,30 @@ def fit_map(fpath_dict, beam_map_width,
     # is only correct if the wcs is CAR (or maybe just original wcs from FITS file)
     # and also, we cant reproject.thumbnails after enmap_from_healpix or bad things happen
     enmap_cmb = reproject.enmap_from_healpix(fpath_dict['cmb'], enmap_150.shape, enmap_150.wcs, 
-                                        ncomp=3, unit=1e-6, lmax=6000,rot='gal,equ')[0]
+                                        ncomp=1, unit=1e-6, lmax=6000,rot='gal,equ')[0]
+    
+    '''plt.figure(-1)
+    plt.title('not subtracted 90')
+    plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_90, -100, 100)
+    plt.figure(-2)
+    plt.title('not subtracted 150')
+    plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_150, -100, 100)
+    plt.figure(4)
+    plt.title('cmb')
+    plt.imshow(enmap_cmb, cmap=cm.coolwarm, vmin=-100, vmax=100)'''
+
     
     # subtract the cmb from the actplanck maps
     enmap_150 -= enmap_cmb
     enmap_90 -= enmap_cmb
+    
+    '''plt.figure(10)
+    plt.title('enmap 150 w/ gaussian blur')
+    plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_150, -100, 100)
+    plt.figure(11)
+    plt.title('enmap 90 w/ gaussian blur')
+    plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_90, -100, 100)
+    plt.show()'''
 
     # should we deconvolve the thumbnails?
     # after lots of trouble, finally realized that res parameter was short for resolution or something
@@ -119,8 +136,14 @@ def fit_map(fpath_dict, beam_map_width,
         plt.figure(4)
         plt.title('cmb')
         plt.imshow(enmap_cmb, cmap=cm.coolwarm, vmin=-100, vmax=100)
+        plt.figure(10)
+        plt.title('enmap 150 w/ gaussian blur')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_150, -100, 100)
+        plt.figure(11)
+        plt.title('enmap 90 w/ gaussian blur')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_90, -100, 100)
         plt.show()
-
+        
     if verbose:
         print('Instantiating beam handlers')
     beam_handler_150 = beam_utils.BeamHandler2D(fpath_dict['beam_150'], beam_map_width)
@@ -129,14 +152,34 @@ def fit_map(fpath_dict, beam_map_width,
     excise_regions = None #[(14, 0, 8, 7)]
     if verbose:
         print('Running simultaneous fit...')
-    m = mpfit_gNFW.mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, sfl_150,
-                                                    sfl_90, err_150, err_90, init_params, fixed_params, excise_regions, num_processes)
+    '''m = mpfit_spherical_gNFW.mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, sfl_150,
+                                                    sfl_90, err_150, err_90, parinfo, excise_regions, num_processes)'''
+    m = fit_func(R500, beam_handler_150, beam_handler_90, sfl_150,
+                        sfl_90, err_150, err_90, parinfo, excise_regions, num_processes)
 
     if verbose:
         print('fit params:', m.params)
         print('fit error:', m.perror)
         print('signal to noise ratios:', abs(m.params / m.perror))
 
+    if show_map_plots:
+        import ellipsoid_model as ellipsoid_model
+        theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = m.params
+        fit_150 = ellipsoid_model.interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30, R500, x_offset, y_offset, sfl_150.shape[0], sfl_150.shape[1])
+        fit_90 = fit_150 * (P0_90/P0_150)
+        plt.figure(0)
+        plt.title('sfl 150 w/ gaussian blur')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, sfl_150, -100, 100)
+        plt.figure(1)
+        plt.title('sfl 150 fit')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, fit_150 + c_150, -100, 100)
+        plt.figure(2)
+        plt.title('sfl 90 w/ gaussian blur')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, sfl_90, -100, 100)
+        plt.figure(3)
+        plt.title('sfl 90 fit')
+        plot_utils.imshow_gaussian_blur_default(1.5, 1.5, fit_90 + c_90, -100, 100)
+        plt.show()
     return m.params, m.perror
 
 

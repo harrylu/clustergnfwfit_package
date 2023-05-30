@@ -17,7 +17,7 @@ class BeamHandler2D:
 
         Args:
             beam_path (str): path of beam file
-            beam_width (odd int): width of beam map (diameter)
+            beam_width (odd int): width of beam map (diameter in pixels)
         """
 
         self.BEAM_PATH = beam_path
@@ -104,7 +104,7 @@ class BeamHandler2D:
         # plt.show()
         return grid
 
-    def convolve2d(self, arr, cut_padding=False):
+    def convolve2d(self, arr, cut_padding=True):
         """Does convolution with self's beam grid as kernel over the input 2d array with normalization.
 
         Args:
@@ -115,7 +115,7 @@ class BeamHandler2D:
             2d array: Convolved input array.
         """
         
-        convolved = astropy.convolution.convolve(arr, self.BEAM_MAP, normalize_kernel=True)
+        convolved = astropy.convolution.convolve_fft(arr, self.BEAM_MAP, normalize_kernel=True)
         if cut_padding:
             half_pad = self.get_pad_pixels()//2
             convolved = convolved[half_pad:-half_pad, half_pad:-half_pad]
@@ -125,11 +125,14 @@ class BeamHandler2D:
         """
 
         Returns:
-            int: Number of pixels that should be applied as padding to input array pre-convolution.
+            int: Number of extra (in addition to desired final data shape) pixels on each dimension
+            that should be read in prior to convolution.
         
         Notes:
             This will return 1 less than the value of the 2d beam map's width (diameter).
-            The pre-convolved map should have (get_pad_pixels/2) pixels added to each side.
+            The pre-convolution image should read (get_pad_pixels/2) extra pixels on each side (4 sides).
+            When the image is convolved by calling convolve2d with cut_padding = True,
+            the extra pixels are discarded.
 
         """
 

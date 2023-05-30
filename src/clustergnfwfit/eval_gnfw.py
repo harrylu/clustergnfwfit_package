@@ -139,9 +139,9 @@ def make_los_gnfw_grid(P0, RS, R500, height, width, offset_x, offset_y, arcsecon
         All values outside of 5*R500 will be ignored in the integration.
         height (int): map height in pixels
         width (int): map width in pixels
-        offset_x (float): offset (in pixels) of gNFW center from the center of
+        offset_x (float): offset (in arcseconds) of gNFW center from the center of
         the returned map (positive to the right)
-        offset_y (float): offset (in pixels) of gNFW center from the center of
+        offset_y (float): offset (in arcseconds) of gNFW center from the center of
         the returned map (positive is down)
         arcseconds_per_pixel (int): length of pixel in arcseconds
         epsrel (float): epsrel for scipy dblquad function (affects speed and accuracy)
@@ -156,8 +156,8 @@ def make_los_gnfw_grid(P0, RS, R500, height, width, offset_x, offset_y, arcsecon
 
     # grid creation below:
     # positive offsets are right and down
-    center_pix_x = (width - 1) / 2 + offset_x
-    center_pix_y = (height - 1) / 2 + offset_y
+    center_pix_x = (width - 1) / 2 + (offset_x / arcseconds_per_pixel)
+    center_pix_y = (height - 1) / 2 + (offset_y / arcseconds_per_pixel)
     grid = np.empty((height, width))
 
     # regular (not multiprocess) approach
