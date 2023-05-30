@@ -35,9 +35,11 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
 
     psf_padding = beam_handler_150.get_pad_pixels()
     # can use this to make the 90 model beause only P0 is different
-    model_150_no_c = ellipsoid_model.interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30, R500, x_offset, y_offset,
-                        y150.shape[0] + psf_padding, y150.shape[1] + psf_padding,
+    model_150_no_c = ellipsoid_model.eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 10, R500, x_offset, y_offset,
+                        (y150.shape[0] + psf_padding)*3, (y150.shape[1] + psf_padding)*3,
                         num_processes=num_processes)
+    # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
+    model_150_no_c = ellipsoid_model.rebin_2d(model_150_no_c, (3, 3))
     # use 150 to make 90 model because only P0 is different
     model_90_no_c = np.copy(model_150_no_c) * (P0_90/P0_150)
 

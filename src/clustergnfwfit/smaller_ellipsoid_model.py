@@ -24,24 +24,28 @@ if __name__ == "__main__":
     # eval full solution @ 5 pixel line from center
     # 20 x 20 map of 30 arcsecond pixels
     timer = time.process_time()
-    model_1_arc = interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30/30, R500, 0, 0, 20*30, 20*30)
+    model_1_arc = eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 30/30, R500, 0, 0, 20*30, 20*30)
     rebinned_1 = rebin_2d(model_1_arc, (30, 30))
     print(f'1": {time.process_time() - timer}')
 
     timer = time.process_time()
-    model_2_arc = interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30/15, R500, 0, 0, 20*15, 20*15)
+    model_2_arc = eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 30/15, R500, 0, 0, 20*15, 20*15)
     rebinned_2 = rebin_2d(model_2_arc, (15, 15))
     print(f'2": {time.process_time() - timer}')
 
     timer = time.process_time()
-    model_5_arc = interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30/6, R500, 0, 0, 20*6, 20*6)
+    model_5_arc = eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 30/6, R500, 0, 0, 20*6, 20*6)
     rebinned_5 = rebin_2d(model_5_arc, (6, 6))
     print(f'5": {time.process_time() - timer}')
 
     timer = time.process_time()
-    model_10_arc = interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30/3, R500, 0, 0, 20*3, 20*3)
+    model_10_arc = eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 30/3, R500, 0, 0, 20*3, 20*3)
     rebinned_10 = rebin_2d(model_10_arc, (3, 3))
     print(f'10": {time.process_time() - timer}')
+    
+    timer = time.process_time()
+    model_30_arc = eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 30/1, R500, 0, 0, 20*1, 20*1)
+    print(f'30": {time.process_time() - timer}')
 
     timer = time.process_time()
     to_eval = [(x, 10) for x in range(10, 20)]
@@ -62,6 +66,9 @@ if __name__ == "__main__":
     plt.figure(10)
     plt.title('10 arcseconds binned into 30')
     plt.imshow(rebinned_10)
+    plt.figure(30)
+    plt.title('30 arcseconds no rebin')
+    plt.imshow(model_30_arc)
 
     plt.figure(101)
     plt.title('1 arc / truth')
@@ -75,5 +82,7 @@ if __name__ == "__main__":
     plt.figure(110)
     plt.title('10 arc / truth')
     plt.imshow(rebinned_10 / truth)
+    plt.title('30 arc / truth')
+    plt.imshow(model_30_arc / truth)
     plt.show()
     

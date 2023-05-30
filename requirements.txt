@@ -3,3 +3,5 @@ matplotlib>=3.5.3
 numpy>=1.23.2
 pixell>=0.16.0
 scipy>=1.9.0
+emcee>=3.1.4
+corner>=2.21

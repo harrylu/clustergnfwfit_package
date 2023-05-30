@@ -243,7 +243,7 @@ def demo_fits_maps_and_di_ellipse():
     _, err_150, err_90, _, _, _, _, _, _, _ = errors
     # we can avoid having to call make_fits_grid twice by calling it once
     # and then multiplying it by the ratio to get the other before adding the constants
-    gnfw_fits_150 = ellipsoid_model.interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 4, R500, x_offset, y_offset)
+    gnfw_fits_150 = ellipsoid_model.eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 4, R500, x_offset, y_offset)
     gnfw_fits_90 = gnfw_fits_150 * (P0_90/P0_150)
 
     # now, we can add the additive constants

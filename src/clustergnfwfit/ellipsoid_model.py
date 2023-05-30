@@ -147,7 +147,7 @@ def interp_solution(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset
     return pixels
 
 # dont do double integral; just evaluate at center of pixel,
-def interp_no_dbl(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_height=470, img_width=470, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8, num_processes=1):
+def eval_pixel_centers(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_height=470, img_width=470, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8, num_processes=1):
     # offset in arcseconds
     # theta is ccw rotation in x,y plane in degrees
     # convert theta to rads
@@ -209,14 +209,14 @@ if __name__ == "__main__":
     #np.save('gnfw_fits_150_ellipsoidal_interped', gnfw_fits_150)
     gnfw_fits_150 = np.load('gnfw_fits_150_ellipsoidal_interped.npy')
     
-    gnfw_fits_150_no_dbl = interp_no_dbl(theta, P0_150, RS, RS, RS, 4, R500, 0, 0, 30, 30, 100)
+    gnfw_fits_150_no_dbl = eval_pixel_centers(theta, P0_150, RS, RS, RS, 4, R500, 0, 0, 30, 30, 100)
     
-    gnfw_fits_150_no_dbl_1_arc = interp_no_dbl(theta, P0_150, RS, RS, RS, 4/4, R500, 0, 0, 30*4, 30*4, 100)
+    gnfw_fits_150_no_dbl_1_arc = eval_pixel_centers(theta, P0_150, RS, RS, RS, 4/4, R500, 0, 0, 30*4, 30*4, 100)
     
     # rebin into 4 arcseconds
     rebinned_1_arc = rebin_2d(gnfw_fits_150_no_dbl_1_arc, (4, 4))
 
-    gnfw_fits_150_no_dbl_2_arc = interp_no_dbl(theta, P0_150, RS, RS, RS, 4/2, R500, 0, 0, 30*2, 30*2, 100)
+    gnfw_fits_150_no_dbl_2_arc = eval_pixel_centers(theta, P0_150, RS, RS, RS, 4/2, R500, 0, 0, 30*2, 30*2, 100)
     rebinned_2_arc = rebin_2d(gnfw_fits_150_no_dbl_2_arc, (2, 2))
 
 

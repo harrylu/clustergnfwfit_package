@@ -163,9 +163,12 @@ def fit_map(fpath_dict, beam_map_width,
         print('signal to noise ratios:', abs(m.params / m.perror))
 
     if show_map_plots:
+        # will error if we used spherical model (bookkeeping for future (will we just use ellipsoid always?))
         import ellipsoid_model as ellipsoid_model
         theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = m.params
-        fit_150 = ellipsoid_model.interp_no_dbl(theta, P0_150, r_x, r_y, r_z, 30, R500, x_offset, y_offset, sfl_150.shape[0], sfl_150.shape[1])
+        fit_150 = ellipsoid_model.eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 10, R500, x_offset, y_offset, sfl_150.shape[0]*3, sfl_150.shape[1]*3)
+        # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
+        fit_150 = ellipsoid_model.rebin_2d(fit_150, (3, 3))
         fit_90 = fit_150 * (P0_90/P0_150)
         plt.figure(0)
         plt.title('sfl 150 w/ gaussian blur')
