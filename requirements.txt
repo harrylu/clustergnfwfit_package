@@ -5,3 +5,4 @@ pixell>=0.16.0
 scipy>=1.9.0
 emcee>=3.1.4
 corner>=2.21
+tqdm>=4.65.0
