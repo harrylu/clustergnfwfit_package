@@ -45,9 +45,11 @@ START_OVER = True
 
 # use uniform ("uninformative") priors
 def log_prior(p):
-    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y = p
+    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y, c_90, c_150 = p
     # bound r_x, r_y > 0
-    if 0 < theta < 180 and -1000 < p0_90 < 0 and -1000 < p0_150 < 0 and 10 < r_x < R500 and 10 < r_y < R500 and -300 < offset_x < 300 and -300 < offset_y < 300:
+    in_bounds = 0 < theta < 180 and -1000 < p0_90 < 0 and -1000 < p0_150 < 0 and 10 < r_x < R500 and 10 < r_y < R500
+    in_bounds &= -300 < offset_x < 300 and -300 < offset_y < 300
+    if in_bounds:
         return 0
     return -np.inf
 
@@ -57,17 +59,19 @@ def log_prior(p):
 # sigmas should be (sigmas_90 | sigmas_150)
 # (a | b) means np.hstack((a, b))
 def log_likelihood(p, x, sigmas):
-    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y = p
+    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y, c_90, c_150 = p
     r_z = np.sqrt(r_x*r_y)
     # shape[1] divided by 2 because of the hstack
     y_90 = ellipsoid_model.eval_pixel_centers(theta, p0_90, r_x, r_y, r_z, 10, R500, offset_x, offset_y, x.shape[0]*3, int(x.shape[1]/2*3))
     y_90 = ellipsoid_model.rebin_2d(y_90, (3, 3))
     y_150 = y_90 * (p0_150/p0_90)
+    y_90 += c_90
+    y_150 += c_150
     
     y = np.hstack((y_90, y_150))
 
     return -0.5 * np.sum(np.square((y - x)/sigmas))
-    # should be + np.log(2*np.pi*np.square(sigmas)) but additive constant doesn't matter
+    # should be + -0.5 * np.sum(np.log(2*np.pi*np.square(sigmas))) but additive constant doesn't matter
 
 # The definition of the log probability function
 def log_prob(p, x, sigmas):
@@ -79,8 +83,8 @@ def log_prob(p, x, sigmas):
 
 # Initialize the walkers
 # nwalkers is # walkers, ndim is # parameters
-mu = np.tile(np.array([90, -50, -50, 150, 150, 0, 0]), (32, 1))
-coords = np.random.randn(32, 7) + mu
+mu = np.tile(np.array([90, -100, -100, 150, 150, 0, 0, 0, 0]), (32, 1))
+coords = np.random.randn(32, 9) + mu
 nwalkers, ndim = coords.shape
 
 # Set up the backend
@@ -137,6 +141,7 @@ with Pool() as pool:
         converged = np.all(tau * 100 < sampler.iteration)
         print(f'tau: {tau}')
         print(f'Effective samples: {sampler.iteration / tau}')
+        print(f'Acceptance fraction: {sampler.acceptance_fraction}')
         converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
         if converged:
             break
