@@ -89,7 +89,8 @@ def full_solution(pixels_coords_to_eval, theta, p0, r_x, r_y, r_z, arcseconds_pe
 def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples, epsabs=1.49e-8, epsrel=1.49e-8):
     # because we are integrating only withing sphere of radius 5*R500,
     # max value of s is 5*R500 / min(r_x, r_y, r_z) (can prove with Lagrange multipliers)
-    max_s_xy = 5*R500 / min(r_x, r_y)
+    # / max (r_x, r_y, r_z) if we are scaling major axis (we are)
+    max_s_xy = 5*R500 / max(r_x, r_y)
     #s_xy_sqr_samples = np.hstack(([0], np.geomspace(0.001, max_s_xy**2, num=num_samples, endpoint=True)))
     s_xy_sqr_samples = np.geomspace(0.000001, max_s_xy**2, num=num_samples, endpoint=True)
 
