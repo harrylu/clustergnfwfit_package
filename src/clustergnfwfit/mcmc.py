@@ -1,73 +1,146 @@
+from multiprocessing import Pool
+import ellipsoid_model
+from extract_maps import extract_maps
+
+import os
+MAP_FITS_DIR = "/home/harry/ClusterGnfwFit/map_fits_files"
+FNAME_BRIGHTNESS_150 = 'act_planck_dr5.01_s08s18_AA_f150_night_map_srcfree.fits'
+FNAME_NOISE_150 = 'act_planck_dr5.01_s08s18_AA_f150_night_ivar.fits'
+FNAME_BRIGHTNESS_90 = 'act_planck_dr5.01_s08s18_AA_f090_night_map_srcfree.fits'
+FNAME_NOISE_90 = 'act_planck_dr5.01_s08s18_AA_f090_night_ivar.fits'
+FNAME_CMB = 'COM_CMB_IQU-commander_2048_R3.00_full.fits'   # the healpix cmb
+
+# beam of width 17 pixels has smallest values which are within 1% of largest
+BEAM_MAP_WIDTH = 17
+FPATH_BEAM_150 = r"/home/harry/ClusterGnfwFit/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f150_night_beam.txt"
+FPATH_BEAM_90 = r"/home/harry/ClusterGnfwFit/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f090_night_beam.txt"
+
+# CLUSTER_NAME = 'MACSJ0025.4'
+
+# file paths: these fields will stay the same regardless of cluster
+fpath_dict = {
+    'brightness_150': os.path.join(MAP_FITS_DIR, FNAME_BRIGHTNESS_150),
+    'noise_150': os.path.join(MAP_FITS_DIR, FNAME_NOISE_150),
+    'brightness_90': os.path.join(MAP_FITS_DIR, FNAME_BRIGHTNESS_90),
+    'noise_90': os.path.join(MAP_FITS_DIR, FNAME_NOISE_90),
+    'cmb': os.path.join(MAP_FITS_DIR, FNAME_CMB),
+    'beam_150': FPATH_BEAM_150,
+    'beam_90': FPATH_BEAM_90,
+}
+
+# these fields will vary depending on the cluster
+dec = [-12, -22, -45]  # in degrees, minutes, seconds
+ra = [0, 25, 29.9]     # in hours, minutes, seconds
+#dec = [0, 0, 0]  # in degrees, minutes, seconds
+#ra = [0, 0, 0]     # in hours, minutes, seconds
+# ra = [0, 25, 29.9]
+map_radius = 5  # arcminutes
+R500 = 200  # arcseconds
+
 import emcee
 import numpy as np
 
-import ellipsoid_model
-R500 = 200
-
 np.random.seed(42)
+START_OVER = True
 
 # use uniform ("uninformative") priors
 def log_prior(p):
-    # theta, p0, r_x, r_y, r_z, offset_x, offset_y = p
-    # for now, no bounds on values
-    return 0
+    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y = p
+    # bound r_x, r_y > 0
+    if 0 < theta < 180 and -1000 < p0_90 < 0 and -1000 < p0_150 < 0 and 10 < r_x < R500 and 10 < r_y < R500 and -300 < offset_x < 300 and -300 < offset_y < 300:
+        return 0
+    return -np.inf
 
 # https://emcee.readthedocs.io/en/stable/tutorials/line/
 # if we assume gaussian errors centered at the x values (which is what ACTPlank is, I'm pretty sure)
+# x should be (data_90 | data_150)
+# sigmas should be (sigmas_90 | sigmas_150)
+# (a | b) means np.hstack((a, b))
 def log_likelihood(p, x, sigmas):
-    theta, p0, r_x, r_y, r_z, offset_x, offset_y = p
-    y = ellipsoid_model.eval_pixel_centers(theta, p0, r_x, r_y, r_z, 10, R500, offset_x, offset_y, x.shape[0]*3, x.shape[1]*3)
-    y = ellipsoid_model.rebin_2d(y, (3, 3))
-    return -0.5 * np.sum(np.square((y - x)/sigmas) + np.log(2*np.pi*np.square(sigmas)))
+    theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y = p
+    r_z = np.sqrt(r_x*r_y)
+    # shape[1] divided by 2 because of the hstack
+    y_90 = ellipsoid_model.eval_pixel_centers(theta, p0_90, r_x, r_y, r_z, 10, R500, offset_x, offset_y, x.shape[0]*3, int(x.shape[1]/2*3))
+    y_90 = ellipsoid_model.rebin_2d(y_90, (3, 3))
+    y_150 = y_90 * (p0_150/p0_90)
+    
+    y = np.hstack((y_90, y_150))
+
+    return -0.5 * np.sum(np.square((y - x)/sigmas))
+    # should be + np.log(2*np.pi*np.square(sigmas)) but additive constant doesn't matter
 
 # The definition of the log probability function
 def log_prob(p, x, sigmas):
     lp = log_prior(p)
+    if not np.isfinite(lp):
+        return -np.inf
     return lp + log_likelihood(p, x, sigmas)
 
 
 # Initialize the walkers
-coords = np.random.randn(32, 5)
+# nwalkers is # walkers, ndim is # parameters
+mu = np.tile(np.array([90, -50, -50, 150, 150, 0, 0]), (32, 1))
+coords = np.random.randn(32, 7) + mu
 nwalkers, ndim = coords.shape
 
 # Set up the backend
 # Don't forget to clear it in case the file already exists
 filename = "emcee_save.h5"
 backend = emcee.backends.HDFBackend(filename)
-backend.reset(nwalkers, ndim)
+# reset if we want to start from scratch
+if START_OVER:
+    backend.reset(nwalkers, ndim)
+else:
+    try:
+        coords = backend.get_last_sample().coords
+        print("Initial size: {0}".format(backend.iteration))
+    except:
+        # if there is some error (probably no samples), backend is empty and we reset anyways
+        backend.reset(nwalkers, ndim)
+
+
+
+sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150 = extract_maps(fpath_dict, BEAM_MAP_WIDTH,
+                dec, ra, map_radius,
+                show_map_plots=False, verbose=False)
 
 # Initialize the sampler
-sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, backend=backend)
+x = np.hstack((sfl_90, sfl_150))
+sigmas = np.hstack((err_90, err_150))
+with Pool() as pool:
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, backend=backend, pool=pool, args=(x, sigmas))
 
 
-max_n = 100000
+    max_n = 100000
 
-# We'll track how the average autocorrelation time estimate changes
-index = 0
-autocorr = np.empty(max_n)
+    # We'll track how the average autocorrelation time estimate changes
+    index = 0
+    autocorr = np.empty(max_n)
 
-# This will be useful to testing convergence
-old_tau = np.inf
+    # This will be useful to testing convergence
+    old_tau = np.inf
 
-# Now we'll sample for up to max_n steps
-for sample in sampler.sample(coords, iterations=max_n, progress=True):
-    # Only check convergence every 100 steps
-    if sampler.iteration % 100:
-        continue
+    # Now we'll sample for up to max_n steps
+    for sample in sampler.sample(coords, iterations=max_n, progress=True):
+        # Only check convergence every 100 steps
+        if sampler.iteration % 100:
+            continue
 
-    # Compute the autocorrelation time so far
-    # Using tol=0 means that we'll always get an estimate even
-    # if it isn't trustworthy
-    tau = sampler.get_autocorr_time(tol=0)
-    autocorr[index] = np.mean(tau)
-    index += 1
+        # Compute the autocorrelation time so far
+        # Using tol=0 means that we'll always get an estimate even
+        # if it isn't trustworthy
+        tau = sampler.get_autocorr_time(tol=0)
+        autocorr[index] = np.mean(tau)
+        index += 1
 
-    # Check convergence
-    converged = np.all(tau * 100 < sampler.iteration)
-    converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
-    if converged:
-        break
-    old_tau = tau
+        # Check convergence
+        converged = np.all(tau * 100 < sampler.iteration)
+        print(f'tau: {tau}')
+        print(f'Effective samples: {sampler.iteration / tau}')
+        converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+        if converged:
+            break
+        old_tau = tau
 
 
 import matplotlib.pyplot as plt
