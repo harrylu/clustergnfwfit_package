@@ -10,6 +10,7 @@ import astropy.convolution
 class BeamHandler2D:
     """
     Class for working with the beams in the act auxilliary resources
+    Warning: Convolution is done with the beams at 30 arcsecond resolution, so input should be 30 arcseconds.
     """
 
     def __init__(self, beam_path, beam_width):
