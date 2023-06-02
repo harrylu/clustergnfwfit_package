@@ -68,7 +68,7 @@ if r_x < r_y:
     theta += 90
 # mle should be theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y, c_90, c_150
 mle = np.array([theta, P0_150, P0_90, r_x, r_y, x_offset, y_offset, c_90, c_150])
-print(mle)
+print(f"Max likelihood: {mle}")
 
 # Initialize the walkers around max likelihood
 # nwalkers is # walkers, ndim is # parameters
@@ -83,7 +83,7 @@ print(f'theta bounds: [{theta_lower, theta_upper}]')
 def log_prior(p):
     theta, p0_90, p0_150, r_x, r_y, offset_x, offset_y, c_90, c_150 = p
     # bound r_x, r_y > 0
-    in_bounds = theta_lower < theta < theta_upper and -5000 < p0_90 < 5000 and -5000 < p0_150 < 5000 and 10 < r_x < 1000 and 10 < r_y < r_x
+    in_bounds = theta_lower < theta < theta_upper and -2000 < p0_90 < 2000 and -2000 < p0_150 < 2000 and 10 < r_x < 1000 and 10 < r_y < r_x
     in_bounds &= -100 < offset_x < 100 and -100 < offset_y < 100
     if in_bounds:
         return 0
