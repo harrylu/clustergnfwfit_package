@@ -43,7 +43,7 @@ import emcee
 import numpy as np
 
 np.random.seed(42)
-START_OVER = False
+START_OVER = True
 
 # must be in order
 parinfo = [
@@ -121,8 +121,8 @@ def log_likelihood(p):
 def log_prob(p):
     lp = log_prior(p)
     if not np.isfinite(lp):
-        return -np.inf
-    return lp + log_likelihood(p)
+        return -np.inf, -np.inf
+    return lp + log_likelihood(p), lp
 
 # Set up the backend
 # Don't forget to clear it in case the file already exists
@@ -148,7 +148,8 @@ sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150 = extract_ma
 x = np.hstack((sfl_90, sfl_150))
 sigmas = np.hstack((err_90, err_150))
 with Pool() as pool:
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, backend=backend, pool=pool)
+    dtype = [("log_prior", float)]
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, backend=backend, pool=pool, blobs_dtype=dtype)
 
 
     max_n = 100000
