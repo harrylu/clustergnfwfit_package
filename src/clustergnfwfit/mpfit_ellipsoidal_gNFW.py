@@ -17,8 +17,8 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
         y90 (2d array, optional): ... Defaults to None.
         err150 (2d array, optional): ... Defaults to None.
         err90 (2d array, optional): ... Defaults to None.
-        beam_handler_150 (beam_utils.BeamHandler2D, optional): ... Defaults to None.
-        beam_handler_90 (beam_utils.BeamHandler2D, optional): ... Defaults to None.
+        beam_handler_150 (beam_utils.BeamHandler, optional): ... Defaults to None.
+        beam_handler_90 (beam_utils.BeamHandler, optional): ... Defaults to None.
         excise_regions (array of tuples, optional): ... Defaults to None.
         num_processes (int, optional): ... Defaults to None
 
@@ -93,8 +93,8 @@ def mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, y150
     Args:
         R500 (float): R500 (arcseconds) of the cluster being analyzed. All values outside
         of 5*R500 will be ignored when computing the gNFW model.
-        beam_handler_150 (beam_utils.BeamHandler2D): will be used for beam convolution for 150 GHz variant of model.
-        beam_handler_90 (beam_utils.BeamHandler2D): will be used for beam convolution for 90 GHz variant of model.
+        beam_handler_150 (beam_utils.BeamHandler): will be used for beam convolution for 150 GHz variant of model.
+        beam_handler_90 (beam_utils.BeamHandler): will be used for beam convolution for 90 GHz variant of model.
         y150 (2d array): contains 150 GHz brightness values. (microKelvins)
         y90 (2d array): contains 90 GHz brightness values. (microKelvins)
         err150 (2d array): contains one-sigma errors corresponding to the values of y150. (microKelvins)

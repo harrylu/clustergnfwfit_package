@@ -1,5 +1,5 @@
 """
-Contains BeamHandler2D Class.
+Contains BeamHandler Class.
 """
 
 import numpy as np
@@ -7,54 +7,69 @@ import scipy.fft
 import scipy.interpolate
 import astropy.convolution
 
-class BeamHandler2D:
+class BeamHandler:
     """
     Class for working with the beams in the act auxilliary resources
     Warning: Convolution is done with the beams at 30 arcsecond resolution, so input should be 30 arcseconds.
     """
 
-    def __init__(self, beam_path, beam_width):
-        """Construct a BeamHandler2D.
+    def __init__(self, beam_map_width, beam_spline_tck):
+        """Construct a BeamHandler.
 
         Args:
-            beam_path (str): path of beam file
-            beam_width (odd int): width of beam map (diameter in pixels)
+            beam_map_width (odd int): width of beam map (diameter in pixels)
+            beam_spline_tck (tuple (t,c,k)): A tuple (t,c,k) containing the vector of knots,
+            the B-spline coefficients, and the degree of the spline that represents the radial function of the beam.
+            Can be evaluated using sp.interpolate.splrev.
         """
 
-        self.BEAM_PATH = beam_path
-        self.BEAM_WIDTH = beam_width
+        self.beam_map_width = beam_map_width
+        self.beam_spline_tck = beam_spline_tck
         # B(r) spline tck
-        self.BEAM_SPLINE_TCK = self._read_beam_fourier(beam_path)
-        self.BEAM_MAP = self._gen_beam_map(beam_width, self.BEAM_SPLINE_TCK)
-
+        self.beam_map = self.gen_beam_map(beam_map_width, beam_spline_tck)
+    
     @staticmethod
-    def _read_beam_fourier(beam_path):
-        """Read in fourier frequency terms from beam files and represent as B-spline.
+    def rep_beam_spline(Bl):
+        """Represents the beam as a spline. Lmax is assumed to be len(Bl) - 1
 
         Args:
-            beam_path (str): path to the beam file
+            Bl (list of float): [Bl(l=0), Bl(l=1),.... Bl(l=lmax)]
 
         Returns:
             tuple: A tuple (t,c,k) containing the vector of knots,
             the B-spline coefficients, and the degree of the spline.
             Can be evaluated using sp.interpolate.splrev.
         """
-        # read in beam fourier and convert to spline; return B(r) spline tck
+        lmax = len(Bl) - 1
+        Br = scipy.fft.irfft(Bl)
+        delta_pix = 3600 * 180 / lmax
+        Br_spline_tck = scipy.interpolate.splrep([i * delta_pix for i in range(len(Br))], Br)  # x points are in steps of delta_pix
+        return Br_spline_tck
+
+    @staticmethod
+    def read_actplanck_beam_file(fpath):
+        """Expects the file at fpath to be txt file containing l {space} Bl rows separated by newlines
+
+        Args:
+            fpath (string): path to beam file of specified format
+
+        Returns:
+            l, Bl
+            both are lists
+        """
         beam_l, beam_Bl = [], []
-        with open(beam_path, encoding="utf8") as f:
+        with open(fpath, encoding="utf8") as f:
             beam_data = f.readlines()
             for line in beam_data:
                 l, Bl = line.split()
                 beam_l.append(float(l))
                 beam_Bl.append(float(Bl))
-        Br = scipy.fft.irfft(beam_Bl)
-        Br_spline_tck = scipy.interpolate.splrep([i * 21.6 for i in range(len(Br))], Br)  # x points are in steps of 21.6"
-        return Br_spline_tck
+        return beam_l, beam_Bl
 
     @staticmethod
-    def _gen_beam_map(width, beam_spline_tck):
+    def gen_beam_map(width, beam_spline_tck):
         """Creates a 2d map of the beam by evaluating its B-spline representation
-        at each pixel of the map.
+        at each pixel of the map. Each pixel is 30 arcseconds across.
 
         Args:
             width (odd int): width (diameter) of the map
@@ -116,7 +131,7 @@ class BeamHandler2D:
             2d array: Convolved input array.
         """
         
-        convolved = astropy.convolution.convolve_fft(arr, self.BEAM_MAP, normalize_kernel=True)
+        convolved = astropy.convolution.convolve_fft(arr, self.beam_map, normalize_kernel=True)
         if cut_padding:
             half_pad = self.get_pad_pixels()//2
             convolved = convolved[half_pad:-half_pad, half_pad:-half_pad]
@@ -137,4 +152,31 @@ class BeamHandler2D:
 
         """
 
-        return self.BEAM_WIDTH - 1
+        return self.beam_map_width - 1
+
+
+class BeamHandlerACTPol(BeamHandler):
+    def __init__(self, fpath, beam_map_width):
+        """BeamHandler for Planck CMB found here:
+        https://irsa.ipac.caltech.edu/data/Planck/release_3/all-sky-maps/previews/COM_CMB_IQU-commander_2048_R3.00_full/index.html
+
+        Args:
+            fpath (string): Expects the file at fpath to be txt file containing l {space} Bl rows separated by newlines
+            beam_map_width (odd int): width of beam map (diameter in pixels)
+        """
+        _, beam_Bl = BeamHandler.read_actplanck_beam_file(fpath)
+        beam_spline_tck = BeamHandler.rep_beam_spline(beam_Bl)
+        super().__init__(beam_map_width, beam_spline_tck)
+
+
+class BeamHandlerPlanckCMB(BeamHandler):
+    def __init__(self, Bl, beam_map_width):
+        """BeamHandler for Planck CMB found here:
+        https://irsa.ipac.caltech.edu/data/Planck/release_3/all-sky-maps/previews/COM_CMB_IQU-commander_2048_R3.00_full/index.html
+
+        Args:
+            Bl (_type_): list of [Bl(l=0), Bl(l=1), ..., Bl(l=lmax)]
+            beam_map_width (odd int): width of beam map (diameter in pixels)
+        """
+        beam_spline_tck = BeamHandler.rep_beam_spline(Bl)
+        super().__init__(beam_map_width, beam_spline_tck)

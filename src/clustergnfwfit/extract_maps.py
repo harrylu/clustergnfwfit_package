@@ -64,11 +64,10 @@ def extract_maps(fpath_dict, beam_map_width,
     enmap_150_noise = enmap.read_fits(fpath_dict['noise_150'], box=box)[0]
     enmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
     enmap_90_noise = enmap.read_fits(fpath_dict['noise_90'], box=box)[0]
-    # after lots of effort, I discovered that reproject.enmap_from_healpix
-    # is only correct if the wcs is CAR (or maybe just original wcs from FITS file)
+    # use wcs from fits file
     # and also, we cant reproject.thumbnails after enmap_from_healpix or bad things happen
     enmap_cmb = reproject.enmap_from_healpix(fpath_dict['cmb'], enmap_150.shape, enmap_150.wcs, 
-                                        ncomp=1, unit=1e-6, lmax=6000,rot='gal,equ')[0]
+                                        ncomp=1, unit=1e-6,rot='gal,equ')[0]
     
     '''plt.figure(-1)
     plt.title('not subtracted 90')
@@ -140,7 +139,7 @@ def extract_maps(fpath_dict, beam_map_width,
         
     if verbose:
         print('Instantiating beam handlers')
-    beam_handler_150 = beam_utils.BeamHandler2D(fpath_dict['beam_150'], beam_map_width)
-    beam_handler_90 = beam_utils.BeamHandler2D(fpath_dict['beam_90'], beam_map_width)
+    beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], beam_map_width)
+    beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], beam_map_width)
 
     return sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150
