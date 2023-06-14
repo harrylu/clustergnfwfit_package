@@ -6,17 +6,22 @@ import gnfw_fit_map
 
 import os
 import scipy.stats
-MAP_FITS_DIR = "/home/harry/ClusterGnfwFit/map_fits_files"
+MAP_FITS_DIR = "/home/harry/clustergnfwfit_package/data/map_fits_files"
 FNAME_BRIGHTNESS_150 = 'act_planck_dr5.01_s08s18_AA_f150_night_map_srcfree.fits'
 FNAME_NOISE_150 = 'act_planck_dr5.01_s08s18_AA_f150_night_ivar.fits'
 FNAME_BRIGHTNESS_90 = 'act_planck_dr5.01_s08s18_AA_f090_night_map_srcfree.fits'
 FNAME_NOISE_90 = 'act_planck_dr5.01_s08s18_AA_f090_night_ivar.fits'
 FNAME_CMB = 'COM_CMB_IQU-commander_2048_R3.00_full.fits'   # the healpix cmb
 
+BOLOCAM_DIR = '/home/harry/clustergnfwfit_package/data/MACS_J0025.4-1222'
+FNAME_FILTERED = 'filtered_image.fits'
+FNAME_RMS = 'filtered_image_rms.fits'
+FNAME_TRANSFER = 'filtered_image_signal_transfer_function.fits'
+
 # beam of width 17 pixels has smallest values which are within 1% of largest
 BEAM_MAP_WIDTH = 17
-FPATH_BEAM_150 = r"/home/harry/ClusterGnfwFit/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f150_night_beam.txt"
-FPATH_BEAM_90 = r"/home/harry/ClusterGnfwFit/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f090_night_beam.txt"
+FPATH_BEAM_150 = r"/home/harry/clustergnfwfit_package/data/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f150_night_beam.txt"
+FPATH_BEAM_90 = r"/home/harry/clustergnfwfit_package/data/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f090_night_beam.txt"
 
 # CLUSTER_NAME = 'MACSJ0025.4'
 
@@ -29,6 +34,10 @@ fpath_dict = {
     'cmb': os.path.join(MAP_FITS_DIR, FNAME_CMB),
     'beam_150': FPATH_BEAM_150,
     'beam_90': FPATH_BEAM_90,
+
+    'filtered': os.path.join(BOLOCAM_DIR, FNAME_FILTERED),
+    'noise': os.path.join(BOLOCAM_DIR, FNAME_RMS),
+    'transfer': os.path.join(BOLOCAM_DIR, FNAME_TRANSFER),
 }
 
 # these fields will vary depending on the cluster
@@ -59,10 +68,13 @@ parinfo = [
     {'parname': 'c_150', 'value': 0., 'fixed': None, 'limited': [0, 0], 'limits': [0., 0.]},  # c_150
     {'parname': 'c_90', 'value': 0., 'fixed': None, 'limited': [0, 0], 'limits': [0., 0.]},  # c_90
 ]
-params, perror = gnfw_fit_map.fit_map(fpath_dict, BEAM_MAP_WIDTH,
-                        dec, ra, map_radius, R500, parinfo, mpfit_ellipsoidal_gNFW.mpfit_ellipsoidal_simultaneous,
-                        False, False, 1)
-theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = params
+
+sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_beam_handler = extract_maps(fpath_dict,
+                dec, ra, map_radius, verbose=False)
+m = mpfit_ellipsoidal_gNFW.mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, sfl_150,
+                        sfl_90, err_150, err_90, parinfo, [])
+
+theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = m.params
 # r_x is major axis, so make sure r_y < r_x
 if r_x < r_y:
     r_x, r_y = r_y, r_x
@@ -96,10 +108,9 @@ def log_prior(p):
     return -np.inf
 
 # https://emcee.readthedocs.io/en/stable/tutorials/line/
-# if we assume gaussian errors centered at the x values (which is what ACTPlank is, I'm pretty sure)
-# x should be (data_90 | data_150)
-# sigmas should be (sigmas_90 | sigmas_150)
-# (a | b) means np.hstack((a, b))
+# if we assume gaussian errors centered at the x values
+# x is sfl_90, sfl_150
+# sigma is err_90, err_150
 # x, sigmas, beam_handlers are global vars for speed
 def log_likelihood(p):
     theta, cube_root_p0_90, cube_root_p0_150, r_x, r_y, offset_x, offset_y, c_90, c_150 = p
@@ -110,9 +121,9 @@ def log_likelihood(p):
     r_z = np.sqrt(r_x*r_y)
     
     dim_pad = beam_handler_90.get_pad_pixels()
-    img_height = int(x.shape[0] + dim_pad)
+    img_height = int(sfl_90.shape[0] + dim_pad)
     # shape[1] divided by 2 because of the hstack
-    img_width = int(x.shape[1]/2 + dim_pad)
+    img_width = int(sfl_90.shape[1] + dim_pad)
     y_90 = ellipsoid_model.eval_pixel_centers(theta, p0_90, r_x, r_y, r_z, 10, R500, offset_x, offset_y, img_height*3, img_width*3)
     y_90 = ellipsoid_model.rebin_2d(y_90, (3, 3))
     y_150 = y_90 * (p0_150/p0_90)
@@ -120,10 +131,8 @@ def log_likelihood(p):
     y_150 += c_150
     y_90 = beam_handler_90.convolve2d(y_90, cut_padding=True)
     y_150 = beam_handler_150.convolve2d(y_150, cut_padding=True)
-    
-    y = np.hstack((y_90, y_150))
 
-    return -0.5 * np.sum(np.square((y - x)/sigmas))
+    return -0.5 * (np.sum(np.square((y_90 - sfl_90)/err_90)) + np.sum(np.square((y_150 - sfl_150)/err_150)))
     # should be + -0.5 * np.sum(np.log(2*np.pi*np.square(sigmas))) but additive constant doesn't matter
 
 # The definition of the log probability function
@@ -150,13 +159,10 @@ else:
 
 
 
-sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150 = extract_maps(fpath_dict, BEAM_MAP_WIDTH,
-                dec, ra, map_radius,
-                show_map_plots=False, verbose=False)
+sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_beam_handler = extract_maps(fpath_dict,
+                                                                                   dec, ra, map_radius, deconvolve_cmb_lmax=2000, include_bolocam=True, verbose=False)
 
 # Initialize the sampler
-x = np.hstack((sfl_90, sfl_150))
-sigmas = np.hstack((err_90, err_150))
 with Pool() as pool:
     dtype = [("log_prior", float)]
     sampler = emcee.EnsembleSampler(nwalkers, ndim, log_prob, backend=backend, pool=pool, blobs_dtype=dtype)

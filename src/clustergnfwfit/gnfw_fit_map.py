@@ -1,3 +1,5 @@
+# Deprecated
+
 import numpy as np
 from pixell import enmap, reproject, utils
 
@@ -6,12 +8,13 @@ from matplotlib import cm
 
 import beam_utils
 import plot_utils
+import mpfit_ellipsoidal_gNFW
 
 from extract_maps import extract_maps
 
-def fit_map(fpath_dict, beam_map_width,
-                dec, ra, map_radius, R500, parinfo, fit_func,
-                show_map_plots=False, verbose=False, num_processes=4):
+def fit_map(fpath_dict,
+                dec, ra, map_radius, R500, parinfo,
+                show_map_plots=False, verbose=False):
     """Runs mpfit on the specified map
 
     Args:
@@ -28,7 +31,6 @@ def fit_map(fpath_dict, beam_map_width,
         parinfo (list of dictionaries): parinfo as specified in mpfit docs 
         show_map_plots (bool, optional): Whether to show matplotlib plots. Defaults to False.
         verbose (bool, optional): Whether to log to console. Defaults to False.
-        num_processes (int, optional): Max number of cores to use. Defaults to 4.
 
     Notes:
         The extracted maps will be centered at the (dec, ra) and so will always be an odd-numbered shape.
@@ -44,17 +46,16 @@ def fit_map(fpath_dict, beam_map_width,
         2. tuple: one sigma error for each of the parameters
 
     """
-    sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150 = extract_maps(fpath_dict, beam_map_width,
-                dec, ra, map_radius,
-                show_map_plots=False, verbose=False)
+    sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150 = extract_maps(fpath_dict,
+                dec, ra, map_radius, verbose=False)
 
     excise_regions = None #[(14, 0, 8, 7)]
     if verbose:
         print('Running simultaneous fit...')
     '''m = mpfit_spherical_gNFW.mpfit_3dgnfw_simultaneous(R500, beam_handler_150, beam_handler_90, sfl_150,
                                                     sfl_90, err_150, err_90, parinfo, excise_regions, num_processes)'''
-    m = fit_func(R500, beam_handler_150, beam_handler_90, sfl_150,
-                        sfl_90, err_150, err_90, parinfo, excise_regions, num_processes)
+    m = mpfit_ellipsoidal_gNFW.mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, sfl_150,
+                        sfl_90, err_150, err_90, parinfo, excise_regions)
 
     if verbose:
         print('fit params:', m.params)

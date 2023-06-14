@@ -6,14 +6,16 @@ import numpy as np
 import scipy.fft
 import scipy.interpolate
 import astropy.convolution
+from astropy.modeling.functional_models import Gaussian2D
 
 class BeamHandler:
     """
     Class for working with the beams in the act auxilliary resources
-    Warning: Convolution is done with the beams at 30 arcsecond resolution, so input should be 30 arcseconds.
+    Warning: Convolution is done with the beams at 30 arcsecond resolution for ACTPlanck and 20 arcseconds for Bolocam,
+    so input should be 30 and 20 arcseconds, respectively.
     """
 
-    def __init__(self, beam_map_width, beam_spline_tck):
+    def __init__(self, beam_map):
         """Construct a BeamHandler.
 
         Args:
@@ -23,10 +25,11 @@ class BeamHandler:
             Can be evaluated using sp.interpolate.splrev.
         """
 
-        self.beam_map_width = beam_map_width
-        self.beam_spline_tck = beam_spline_tck
+        self.beam_map_width = beam_map.shape[0]
+        if self.beam_map_width % 2 == 0:
+            raise Exception("Beam map shape must be odd to have a center pixel")
         # B(r) spline tck
-        self.beam_map = self.gen_beam_map(beam_map_width, beam_spline_tck)
+        self.beam_map = beam_map
     
     @staticmethod
     def rep_beam_spline(Bl):
@@ -165,8 +168,9 @@ class BeamHandlerACTPol(BeamHandler):
             beam_map_width (odd int): width of beam map (diameter in pixels)
         """
         _, beam_Bl = BeamHandler.read_actplanck_beam_file(fpath)
-        beam_spline_tck = BeamHandler.rep_beam_spline(beam_Bl)
-        super().__init__(beam_map_width, beam_spline_tck)
+        self.beam_spline_tck = BeamHandler.rep_beam_spline(beam_Bl)
+        beam_map = BeamHandler.gen_beam_map(beam_map_width, self.beam_spline_tck)
+        super().__init__(beam_map)
 
 
 class BeamHandlerPlanckCMB(BeamHandler):
@@ -178,5 +182,22 @@ class BeamHandlerPlanckCMB(BeamHandler):
             Bl (_type_): list of [Bl(l=0), Bl(l=1), ..., Bl(l=lmax)]
             beam_map_width (odd int): width of beam map (diameter in pixels)
         """
-        beam_spline_tck = BeamHandler.rep_beam_spline(Bl)
-        super().__init__(beam_map_width, beam_spline_tck)
+        self.beam_spline_tck = BeamHandler.rep_beam_spline(Bl)
+        beam_map = BeamHandler.gen_beam_map(beam_map_width, self.beam_spline_tck)
+        super().__init__(beam_map)
+
+class BeamHandlerBolocam(BeamHandler):
+    def __init__(self, fwhm, beam_map_width):
+        """BeamHandler for Bolocam (Gaussian beam)
+
+        Args:
+            fwhm (float): Full Width of Half Maximum for Gaussian beam in degrees.
+            beam_map_width (int): Map width in pixels (must be odd)
+        """
+        bolocam_beam_sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        y, x = np.mgrid[:beam_map_width, :beam_map_width]
+        x_mean = beam_map_width // 2
+        y_mean = beam_map_width // 2
+        bolocam_beam_sigma_pixels = bolocam_beam_sigma * 3600 / 20
+        beam_map = Gaussian2D.evaluate(x, y, 1, x_mean, y_mean, bolocam_beam_sigma_pixels, bolocam_beam_sigma_pixels, 0)
+        super().__init__(beam_map)

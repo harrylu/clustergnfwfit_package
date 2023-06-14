@@ -61,6 +61,7 @@ def f_gnfw_ellipsoid_with_rot(theta, x, y, z, *args):
     rotated = R @ xy
     return f_gnfw_ellipsoid(rotated[0].item(), rotated[1].item(), z, *args)
 
+# ONLY FOR TESTING PURPOSES; TOO SLOW OTHERWISE
 # pixel_coords_to_eval is list of tuples (x,y)
 def full_solution(pixels_coords_to_eval, theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_width=470, img_height=470, epsabs=1.49e-8, epsrel=1.49e-8):
     # theta is ccw rotation in x,y plane
@@ -113,6 +114,7 @@ def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples, epsabs=1.49e-8, e
     interp = scipy.interpolate.interp1d(s_xy_sqr_samples, evaluated_gnfw, kind='linear', fill_value=0, bounds_error=False, assume_sorted=True)
     return interp
 
+# ONLY FOR TESTING PURPOSES; TOO SLOW OTHERWISE
 def interp_solution(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_width=470, img_height=470, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8):
     # theta is ccw rotation in x,y plane in degrees
     # convert theta to rads
@@ -147,8 +149,20 @@ def interp_solution(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset
         print(pix_y)
     return pixels
 
-# dont do double integral; just evaluate at center of pixel,
-def eval_pixel_centers(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_height=470, img_width=470, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8, num_processes=1):
+# useful
+def eval_pixel_centers(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, offset_x=0, offset_y=0, img_height=470, img_width=470, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8):
+    
+    gnfw_s_xy_sqr = interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples, epsabs=epsabs, epsrel=epsrel)
+    
+    # offset in arcseconds
+    # theta is ccw rotation in x,y plane in degrees
+    # convert theta to rads
+    return eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, arcseconds_per_pixel, offset_x, offset_y, img_height, img_width)
+
+# evaluating the interp takes a long time but is reusable
+# if we want to evaluate the same model at different resolutions, we can first find the interp
+# then, call this function
+def eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, arcseconds_per_pixel, offset_x, offset_y, img_height, img_width):
     # offset in arcseconds
     # theta is ccw rotation in x,y plane in degrees
     # convert theta to rads
@@ -157,8 +171,6 @@ def eval_pixel_centers(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, off
     center_pix_x = (img_width - 1) / 2 + (offset_x / arcseconds_per_pixel)
     center_pix_y = (img_height - 1) / 2 + (offset_y / arcseconds_per_pixel)
     pixels = np.zeros((img_height, img_width))
-
-    gnfw_s_xy_sqr = interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples, epsabs=epsabs, epsrel=epsrel)
     def f_gnfw_s_xy_sqr_with_rot(x, y):
         # x, y are in arcseconds, (0, 0) is center of ellipsoid
         x_rot = x*np.cos(theta) - y*np.sin(theta)
@@ -177,6 +189,8 @@ def eval_pixel_centers(theta, p0, r_x, r_y, r_z, arcseconds_per_pixel, R500, off
             pix_val = f_gnfw_s_xy_sqr_with_rot(gnfw_x, gnfw_y)
             pixels[pix_y, pix_x] = pix_val
     return pixels
+
+
 
 # https://stackoverflow.com/questions/14916545/numpy-rebinning-a-2d-array
 def rebin_2d(arr, bin_shape):
