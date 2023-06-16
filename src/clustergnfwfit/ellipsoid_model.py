@@ -87,7 +87,7 @@ def full_solution(pixels_coords_to_eval, theta, p0, r_x, r_y, r_z, arcseconds_pe
 
 # get gnfw(s_xy^2) where s = sqrt(s_xy^2 + (z/r_z)^2))
 # s_xy^2 = (x/r_x)^2 + (y/r_y)^2
-def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples, epsabs=1.49e-8, epsrel=1.49e-8):
+def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples=100, epsabs=1.49e-8, epsrel=1.49e-8):
     # because we are integrating only withing sphere of radius 5*R500,
     # max value of s is 5*R500 / min(r_x, r_y, r_z) (can prove with Lagrange multipliers)
     # / max (r_x, r_y, r_z) if we are scaling major axis (we are)

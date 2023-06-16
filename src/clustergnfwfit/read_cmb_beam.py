@@ -61,7 +61,9 @@ coords = [np.deg2rad([decimal_dec, decimal_ra])]
 # so a arcmins = (1/60 deg) / arcmin = a/60 deg
 # we add some positive arcmin to the map radius to prevent losing edge data when we reproject (maybe unnecessary?)
 # .77 gives odd size of map
-deg_r = (map_radius + .77) / 60
+# .5 gives even size
+# some values like .6 give mismatched axis lengths, which is weird, avoid that
+deg_r = (map_radius + .5) / 60
 
 # Create the box and use it to select a submap enmap
 box = np.deg2rad([[decimal_dec - deg_r, decimal_ra - deg_r], [decimal_dec + deg_r, decimal_ra + deg_r]])
@@ -72,8 +74,16 @@ enmap_90_noise = enmap.read_fits(fpath_dict['noise_90'], box=box)[0]
 enmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
 enmap_150_noise = enmap.read_fits(fpath_dict['noise_150'], box=box)[0]
 if (enmap_90.shape[0] % 2 == 0 or enmap_90.shape[1] % 2 == 0):
-    raise Exception(f"Tweak map_radius (Trial and error; try values close to {map_radius}). Resulting map shape should be odd (for subtracting deconvolved cmb) instead of {enmap_90.shape}.")
+    print("input maps are even")
+else:
+    print("input maps are odd")
 print(f'enmap 90 wcs: {enmap_90.wcs}')
+
+hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
+not_deconvolved_cmb_cutout = reproject.enmap_from_healpix(hp_map, enmap_90.shape, enmap_90.wcs, 
+                                         ncomp=1, unit=1e-6, rot='gal,equ')[0]
+plt.figure('not deconvolved cmb cutout')
+plt.imshow(not_deconvolved_cmb_cutout, cmap=cm.coolwarm, vmin=-100, vmax=100)
 
 # I_STOKES_INP is column (field) 5
 hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
@@ -83,51 +93,15 @@ hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=
 # weird, when I was just using enmap_90's wcs, increasing the shape size just adds to the +x,+y of the image
 # it looks like enmap_90's wcs stores the (0, 0) of the ndmap and reproject.enmap_from_healpix's shape goes +x, +y
 # so we have to make our own wcs that is 1deg x 1deg and centered at our dec, ra
-res = 1/2 * utils.arcmin
-# want odd shape
-cmb_radius_deg = 0.503
-box = np.deg2rad([[decimal_dec - cmb_radius_deg, decimal_ra - cmb_radius_deg], [decimal_dec + cmb_radius_deg, decimal_ra + cmb_radius_deg]])
-cmb_shape, cmb_wcs = enmap.geometry(pos=box, res=res, proj='car')
-print(f'cmb wcs: {cmb_wcs}')
-enmap_cmb = reproject.enmap_from_healpix(hp_map, cmb_shape, cmb_wcs, 
-                                        ncomp=1, unit=1e-6, rot='gal,equ')[0]
-print(f'cmb shape: {cmb_shape}')
-if (cmb_shape[0] % 2 == 0 or cmb_shape[1] % 2 == 0):
-    raise Exception(f"Tweak cmb_radius_deg (Trial and error; try values close to {cmb_radius_deg}). Resulting map shape should be odd (for deconvolution) instead of {cmb_shape}.")
-
-# testing the weirdness from before:
-# # want to cut out center of this
-# plt.figure('1deg x 1deg cmb')
-# plt.imshow(enmap_cmb, vmin=-100, vmax=100)
-
-
-# center_pix_y = enmap_cmb.shape[0] // 2
-# center_pix_x = enmap_cmb.shape[1] // 2
-# cut_amount = enmap_90.shape[0] // 2
-# not_deconvolved_cmb_cutout = enmap_cmb[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
-# #not_deconvolved_cmb_cutout = enmap_cmb[:enmap_90.shape[0], :enmap_90.shape[1]]
-# #print(not_deconvolved_cmb_cutout[not_deconvolved_cmb_cutout.shape[0]//2, not_deconvolved_cmb_cutout.shape[1]//2])
-# plt.figure('cutout subtracted no blur')
-# plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_90 - not_deconvolved_cmb_cutout, vmin=-100, vmax=100)
-
-# plt.figure('cutout')
-# plt.imshow(not_deconvolved_cmb_cutout, vmin=-100, vmax=100)
-
-# reproj_cmb = reproject.enmap_from_healpix(hp_map, enmap_90.shape, enmap_90.wcs, 
-#                                          ncomp=1, unit=1e-6, rot='gal,equ')[0]
-
-# plt.figure('reprojection subtracted')
-# plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_90 - reproj_cmb, vmin=-100, vmax=100)
-
-# plt.figure('reproject')
-# plt.imshow(reproj_cmb, vmin=-100, vmax=100)
-
-# plt.figure('cutout - reproject / reproject')
-# plt.imshow((not_deconvolved_cmb_cutout - reproj_cmb)/reproj_cmb)
-
-# plt.figure('(cutout subtracted) / reprojection subtracted')
-# plt.imshow((enmap_90 - not_deconvolved_cmb_cutout) / (enmap_90 - reproj_cmb))
-# plt.show()
+# res = 1/2 * utils.arcmin
+# # want odd shape
+# cmb_radius_deg = 0.5
+# box = np.deg2rad([[decimal_dec - cmb_radius_deg, decimal_ra - cmb_radius_deg], [decimal_dec + cmb_radius_deg, decimal_ra + cmb_radius_deg]])
+# cmb_shape, cmb_wcs = enmap.geometry(pos=box, res=res, proj='car')
+# print(f'cmb wcs: {cmb_wcs}')
+# enmap_cmb = reproject.enmap_from_healpix(hp_map, cmb_shape, cmb_wcs, 
+#                                         ncomp=1, unit=1e-6, rot='gal,equ')[0]
+# print(f'cmb shape: {cmb_shape}')
 
 
 # get CMB beam
@@ -141,84 +115,50 @@ plt.figure('original cmb beam')
 plt.title('original cmb beam')
 plt.imshow(cmb_beam_map, cmap=cm.coolwarm)
 
-from astropy.modeling.functional_models import Gaussian2D
-from astropy.modeling.fitting import LevMarLSQFitter
-y, x = np.mgrid[:cmb_beam_map.shape[0], :cmb_beam_map.shape[1]]
-fit_p = LevMarLSQFitter()
-model = fit_p(Gaussian2D(x_mean=cmb_beam_map.shape[1]//2, y_mean=cmb_beam_map.shape[0]//2, fixed={'theta': True}), x, y, cmb_beam_map)
-print(model)
-cmb_beam_fitted = model.evaluate(x, y, model.amplitude, model.x_mean, model.y_mean, model.x_stddev, model.y_stddev, model.theta)
-cmb_beam_fitted /= model.amplitude
+# from astropy.modeling.functional_models import Gaussian2D
+# from astropy.modeling.fitting import LevMarLSQFitter
+# y, x = np.mgrid[:cmb_beam_map.shape[0], :cmb_beam_map.shape[1]]
+# fit_p = LevMarLSQFitter()
+# model = fit_p(Gaussian2D(x_mean=cmb_beam_map.shape[1]//2, y_mean=cmb_beam_map.shape[0]//2, fixed={'theta': True}), x, y, cmb_beam_map)
+# print(model)
+# cmb_beam_fitted = model.evaluate(x, y, model.amplitude, model.x_mean, model.y_mean, model.x_stddev, model.y_stddev, model.theta)
+# cmb_beam_fitted /= model.amplitude
 
-plt.figure('original beam - fitted gaussian beam')
-plt.imshow(cmb_beam_map - cmb_beam_fitted)
+# plt.figure('original beam - fitted gaussian beam')
+# plt.imshow(cmb_beam_map - cmb_beam_fitted)
 
-#cmb_beam_map = cmb_beam_fitted
+# #cmb_beam_map = cmb_beam_fitted
 
-plt.figure('beam fitted gaussian (not used)')
-plt.imshow(cmb_beam_fitted)
+# plt.figure('beam fitted gaussian (not used)')
+# plt.imshow(cmb_beam_fitted)
 
-# cmb_beam_map[np.abs(cmb_beam_map) < 0.01] = 0
-
-plt.figure('enmap cmb')
-plt.title('enmap cmb')
-plt.imshow(enmap_cmb, cmap=cm.coolwarm, vmin=-100, vmax=100)
-
-# fft_enmap_cmb = fft.fft2(enmap_cmb)   #scipy.fft.fft2(enmap_cmb)
-# fft_beam_cmb = fft.fft2(np.abs(cmb_beam_map))#np.abs(scipy.fft.fft2(cmb_beam_map))
-
-fft_enmap_cmb = fftpack.fftshift(enmap.fft(enmap_cmb))
-fft_beam_cmb = fftpack.fftshift(np.abs(enmap.fft(cmb_beam_map))) # enmap.fft(np.abs(cmb_beam_map))
-# fft_enmap_cmb *= fft.fft2(beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], fft_beam_cmb.shape[0]).beam_map)
-
-# fft_beam_cmb[fft_beam_cmb < 0.01] = 0.01
-fft_deconvolved_cmb = np.divide(fft_enmap_cmb, fft_beam_cmb)
-#fft_deconvolved_cmb[fft_beam_cmb < 0.25] = 0
-
-# 30 arcseconds = 0.000145444 radians
-y_freq = np.tile(np.fft.fftfreq(fft_deconvolved_cmb.shape[0], 0.000145444), (fft_deconvolved_cmb.shape[1], 1)).T
-x_freq = np.tile(np.fft.fftfreq(fft_deconvolved_cmb.shape[1], 0.000145444), (fft_deconvolved_cmb.shape[0], 1))
-
-# 2pi * freq to convert from k to l
-l_dist = fftpack.fftshift(np.sqrt(np.square(2*np.pi*y_freq) + np.square(2*np.pi*x_freq)))
-plt.figure('l dist')
-plt.imshow(l_dist)
-
-# mask out l > 2000
-lmax = 2000
-fft_deconvolved_cmb[l_dist > lmax] = 0
-
-plt.figure("fft_enmap_cmb")
-plt.imshow(np.abs(fft_enmap_cmb))
-plt.figure("fft_beam_cmb")
-plt.title('fft_beam_cmb')
-plt.imshow(np.abs(fft_beam_cmb))
-plt.figure('fft deconvolved cmb')
-plt.imshow(np.abs(fft_deconvolved_cmb))
-plt.show()
-
-
-plt.figure('not deconvolved cmb')
-plt.imshow(enmap_cmb, cmap=cm.coolwarm, vmin=-100, vmax=100)
 
 beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], 17)
 beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], 17)
 
-# enmap_deconvolved_cmb = np.real(scipy.fft.ifft2(fft_deconvolved_cmb))
-# enmap_deconvolved_cmb = np.real(fftpack.ifft2(fft_deconvolved_cmb))
-enmap_deconvolved_cmb = np.real(enmap.ifft(fftpack.ifftshift(fft_deconvolved_cmb)))
-# test deconvolution script; should be same
-enmap_deconvolved_cmb_2 = deconvolution.get_deconvolved_map_fft(hp_map, Bl, decimal_dec, decimal_ra, cmb_radius_deg, 1/2, lmax)
-# enmap_deconvolved_cmb = beam_handler_90.convolve2d(enmap_deconvolved_cmb)
-# enmap_deconvolved_cmb = restoration.richardson_lucy(enmap_cmb, cmb_beam_map, clip=False, num_iter=1)
-# enmap_deconvolved_cmb, _ = restoration.unsupervised_wiener(enmap_cmb, cmb_beam_map, clip=False)
+lmax=2000
+if enmap_90.shape[0] % 2 == 0:
+    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_even(hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax)
+else:
+    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_odd(hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax)
+
+plt.show()
+
+plt.figure('even cmb')
+even_cmb = deconvolution.get_deconvolved_map_even(hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax)
+print(f"even shape: {even_cmb.shape}")
+plt.imshow(even_cmb, vmin=-100, vmax=100)
+plt.figure('odd cmb')
+odd_cmb = deconvolution.get_deconvolved_map_odd(hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax)
+print(f"even shape: {odd_cmb.shape}")
+plt.imshow(odd_cmb, vmin=-100, vmax=100)
+plt.show()
+
+
+
 print(enmap_deconvolved_cmb.shape)
 plt.figure('devonvolved cmb')
 plt.imshow(enmap_deconvolved_cmb, cmap=cm.coolwarm, vmin=-100, vmax=100)
-plt.figure('devonvolved cmb 2')
-plt.imshow(enmap_deconvolved_cmb_2, cmap=cm.coolwarm, vmin=-100, vmax=100)
-plt.figure('devonvolved cmb - deconvolved cmb 2')
-plt.imshow(enmap_deconvolved_cmb - enmap_deconvolved_cmb_2, cmap=cm.coolwarm, vmin=-100, vmax=100)
 # plt.figure('deconvolved cmb blurred')
 # plot_utils.imshow_gaussian_blur_default(1.5, 1.5, enmap_deconvolved_cmb, -100, 100)
 # plt.figure(11)
@@ -229,21 +169,33 @@ plt.imshow(enmap_deconvolved_cmb - enmap_deconvolved_cmb_2, cmap=cm.coolwarm, vm
 deconvolved_cmb_90 = beam_handler_90.convolve2d(enmap_deconvolved_cmb)
 deconvolved_cmb_150 = beam_handler_150.convolve2d(enmap_deconvolved_cmb)
 
-center_pix_y = deconvolved_cmb_90.shape[0] // 2
-center_pix_x = deconvolved_cmb_90.shape[1] // 2
-cut_amount = enmap_90.shape[0] // 2
-deconvolved_cmb_cutout_90 = deconvolved_cmb_90[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
-deconvolved_cmb_cutout_150 = deconvolved_cmb_150[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
+center_pix = (deconvolved_cmb_90.shape[0] - 1) / 2
+crop_amount = (deconvolved_cmb_90.shape[0] - enmap_90.shape[0]) / 2
+assert int(crop_amount) == crop_amount, "If this trips, get_deconvolved_map is not correct in even/odd"
+crop_amount = int(crop_amount)
+deconvolved_cmb_cutout_90 = deconvolved_cmb_90[crop_amount:-crop_amount, crop_amount:-crop_amount]
+deconvolved_cmb_cutout_150 = deconvolved_cmb_150[crop_amount:-crop_amount, crop_amount:-crop_amount]
 plt.figure('deconvolved_cmb_cutout reconvolved 90')
 plt.imshow(deconvolved_cmb_cutout_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
 plt.figure('deconvolved_cmb_cutout reconvolved 150')
 plt.imshow(deconvolved_cmb_cutout_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
 
-center_pix_y = enmap_cmb.shape[0] // 2
-center_pix_x = enmap_cmb.shape[1] // 2
-not_deconvolved_cmb_cutout = enmap_cmb[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
-plt.figure('not deconvolved cmb cutout')
-plt.imshow(not_deconvolved_cmb_cutout, vmin=-100, vmax=100)
+
+# test deconvolution.py
+padding = beam_handler_90.get_pad_pixels()
+deconvolved_cmb_90_script = beam_handler_90.convolve2d(deconvolution.get_deconvolved_map(np.array(enmap_90.shape) + padding, hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax))
+deconvolved_cmb_150_script = beam_handler_150.convolve2d(deconvolution.get_deconvolved_map(np.array(enmap_150.shape) + padding, hp_map, Bl, decimal_dec, decimal_ra, 0.503, 1/2, lmax))
+
+print(f"enmap_90 shape: {enmap_90.shape}")
+plt.figure('diff script - no script 90')
+plt.imshow(deconvolved_cmb_90_script - deconvolved_cmb_cutout_90)
+plt.figure('diff script - no script 150')
+plt.imshow(deconvolved_cmb_150_script - deconvolved_cmb_cutout_150)
+print(f"diff - script 90 {np.sum(np.abs(deconvolved_cmb_90_script - deconvolved_cmb_cutout_90))}")
+print(f"diff - script 150 {np.sum(np.abs(deconvolved_cmb_150_script - deconvolved_cmb_cutout_150))}")
+
+
+
 
 
 enmap_90_cmb_subtracted = enmap_90 - deconvolved_cmb_cutout_90
@@ -278,6 +230,7 @@ print(f'RMS: {np.sqrt(np.mean(np.square(enmap_150 - not_deconvolved_cmb_cutout))
 
 # dont forget reproject to sfl
 radius = map_radius*utils.arcmin
+res = 1/2 * utils.arcmin
 sfl_90 = reproject.thumbnails(enmap_90_cmb_subtracted, coords, r=radius, res=res, proj='sfl', verbose=True)[0]
 sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res, proj='sfl', verbose=True)[0]
 sfl_150 = reproject.thumbnails(enmap_150_cmb_subtracted, coords, r=radius, res=res, proj='sfl', verbose=True)[0]

@@ -2,7 +2,7 @@ import emcee
 import numpy as np
 import matplotlib.pyplot as plt
 
-filename = 'emcee_backend_cube_root.h5'
+filename = 'emcee_backend_6k_w_bolocam.h5'
 reader = emcee.backends.HDFBackend(filename)
 
 # tau = reader.get_autocorr_time()
@@ -12,9 +12,9 @@ samples = reader.get_chain()
 log_prob_samples = reader.get_log_prob()
 log_prior_samples = reader.get_blobs()
 
-pnames = ['theta', 'p0_90', 'p0_150', 'r_x', 'r_y', 'offset_x', 'offset_y', 'c_90', 'c_150']
-p_lower_bounds = [90, -5000, -5000, 10, 10, -100, -100, None, None]
-p_upper_bounds = [270, 5000, 5000, 1000, 1000, 100, 100, None, None]
+pnames = ['theta', 'p0_90', 'p0_150', 'r_x', 'r_y', 'offset_x', 'offset_y', 'c_90', 'c_150', 'cbrt_p0_bolocam', 'c_bolocam']
+p_lower_bounds = [90, -5000, -5000, 10, 10, -100, -100, None, None, -5000, None]
+p_upper_bounds = [270, 5000, 5000, 1000, 1000, 100, 100, None, None, 5000, None]
 subplots = [list(plt.subplots(3, 1)) for _ in range(len(pnames))]
 for i, (fig, *_) in enumerate(subplots):
     fig.suptitle(pnames[i])

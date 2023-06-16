@@ -56,27 +56,52 @@ def extract_maps(fpath_dict,
 
     decimal_dec = dms_to_deg(*dec)
     decimal_ra = hms_to_deg(*ra)
-    coords = [np.deg2rad([decimal_dec, decimal_ra])]
+    
 
     # x arcmins = x/60 deg
-    # we add some positive arcmin to the map radius to prevent losing edge data when we reproject (maybe unnecessary?)
-    # .77 gives odd size of map
-    deg_r = (map_radius + .77) / 60
+    # add some positive arcmin to map_radius so we dont lose data when we reproject
+    deg_r = (map_radius + .5) / 60
 
     # Create the box and use it to select a submap enmap
     box = np.deg2rad([[decimal_dec - deg_r, decimal_ra - deg_r], [decimal_dec + deg_r, decimal_ra + deg_r]])
 
     # resolution is 30 arcseconds, will use later
-    res = 1/2 * utils.arcmin
+    res = 1/2
 
-    # these are in CAR projection
+    # these are in CAR projection (may not be centered on dec, ra)
     enmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
     enmap_90_noise = enmap.read_fits(fpath_dict['noise_90'], box=box)[0]
     enmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
     enmap_150_noise = enmap.read_fits(fpath_dict['noise_150'], box=box)[0]
-    # want odd shape for center pixel
-    if (enmap_90.shape[0] % 2 == 0 or enmap_90.shape[1] % 2 == 0):
-        raise Exception(f"Tweak map_radius (Trial and error; try values close to {map_radius}). Resulting map shape should be odd (for subtracting deconvolved cmb) instead of {enmap_90.shape}.")
+    
+    radius = map_radius*utils.arcmin
+    even_maps = True
+    # Need to do some stuff if we want even maps
+    if even_maps:
+        half_pixel_deg = res / 60 / 2
+        coords = [np.deg2rad([decimal_dec + half_pixel_deg, decimal_ra + half_pixel_deg])]
+        sfl_90 = reproject.thumbnails(enmap_90, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150 = reproject.thumbnails(enmap_150, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90 = sfl_90[1:, 1:]
+        sfl_90_noise = sfl_90_noise[1:, 1:]
+        sfl_150 = sfl_150[1:, 1:]
+        sfl_150_noise = sfl_150_noise[1:, 1:]
+
+    else:
+        # for odd maps
+        # reproject to sfl thumbnails (definitely centered on dec, ra)
+        coords = [np.deg2rad([decimal_dec, decimal_ra])]
+        sfl_90 = reproject.thumbnails(enmap_90, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150 = reproject.thumbnails(enmap_150, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, coords, r=radius, res=res * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        print(f"ACTPlanck SFL WCS: {sfl_90.wcs}")
+    
+
+    assert sfl_90.shape[0] == sfl_90.shape[1], f"Sfl 90 axis length mismatch: {sfl_90.shape}"
+    assert sfl_90.shape == sfl_150.shape
 
     # I_STOKES_INP is column (field) 5
     hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
@@ -86,33 +111,26 @@ def extract_maps(fpath_dict,
     hdul = fits.open(fpath_dict['cmb'])
     beam_hdu = hdul[2]
     Bl = list(beam_hdu.columns['INT_BEAM'].array)
-    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_fft(hp_map, Bl, decimal_dec, decimal_ra, cmb_radius_deg, res=1/2, lmax=deconvolve_cmb_lmax)
 
     # diameter of 17 pixels has pixels at < 1% of highest
     beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], 17)
     beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], 17)
 
+    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape) + beam_handler_90.get_pad_pixels(), hp_map, Bl, decimal_dec, decimal_ra, cmb_radius_deg, res=1/2, lmax=deconvolve_cmb_lmax, proj='sfl')
+
     # convolve deconvolved cmb with 90 GHz, 150 GHz beams
     deconvolved_cmb_90 = beam_handler_90.convolve2d(enmap_deconvolved_cmb)
     deconvolved_cmb_150 = beam_handler_150.convolve2d(enmap_deconvolved_cmb)
 
-    # cut out region of cmb for subtraction
-    center_pix_y = deconvolved_cmb_90.shape[0] // 2
-    center_pix_x = deconvolved_cmb_90.shape[1] // 2
-    cut_amount = enmap_90.shape[0] // 2
-    deconvolved_cmb_cutout_90 = deconvolved_cmb_90[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
-    deconvolved_cmb_cutout_150 = deconvolved_cmb_150[center_pix_y - cut_amount:center_pix_y + cut_amount + 1, center_pix_x - cut_amount:center_pix_x + cut_amount + 1]
-
     # subtract cmb
-    enmap_90_cmb_subtracted = enmap_90 - deconvolved_cmb_cutout_90
-    enmap_150_cmb_subtracted = enmap_150 - deconvolved_cmb_cutout_150 
+    sfl_90_cmb_subtracted = sfl_90 - deconvolved_cmb_90
+    sfl_150_cmb_subtracted = sfl_150 - deconvolved_cmb_150 
 
-    # reproject to sfl
-    radius = map_radius*utils.arcmin
-    sfl_90 = reproject.thumbnails(enmap_90_cmb_subtracted, coords, r=radius, res=res, proj='sfl', verbose=verbose)[0]
-    sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res, proj='sfl', verbose=verbose)[0]
-    sfl_150 = reproject.thumbnails(enmap_150_cmb_subtracted, coords, r=radius, res=res, proj='sfl', verbose=verbose)[0]
-    sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, coords, r=radius, res=res, proj='sfl', verbose=verbose)[0]
+    import matplotlib.pyplot as plt
+    from matplotlib import cm
+    plt.figure('deconvolved cmb 90')
+    plt.imshow(deconvolved_cmb_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
+    plt.show
 
     def ivar_to_sigma(x): return np.sqrt(1 / x)
     err_90 = ivar_to_sigma(sfl_90_noise)
@@ -120,40 +138,45 @@ def extract_maps(fpath_dict,
 
     # get bolocam maps
     if include_bolocam == True:
-        # 20 arcsecond resolution
-        # we need to add 10 arcsecond offset, then cut afterwards to match bolocam's 42 x 42 pixels (no center pixel)
-        ten_arcseconds_deg = 0.00277778
-        enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_fft(hp_map, Bl, decimal_dec + ten_arcseconds_deg, decimal_ra + ten_arcseconds_deg, cmb_radius_deg, res=1/3, lmax=deconvolve_cmb_lmax)
+        #read FITS header
+        header = fits.open(fpath_dict['bolocam_filtered'])[0].header
 
-        # convolve with Bolocam psf
-        header = fits.open(fpath_dict['filtered'])[0].header
+        # wcs incorrect when read in this way
+        enmap_bolocam_filtered = enmap.read_fits(fpath_dict['bolocam_filtered'])
+        # fix WCS
+        enmap_bolocam_filtered.wcs.wcs.cdelt = [float(header['CD1_1']), float(header['CD2_2'])]
+        print(f'Bolocam WCS: {enmap_bolocam_filtered.wcs}')
+
         # beam is approx gaussian, fwhm in degrees
         bolocam_beam_fwhm = header['BMAJ']
-
         bolocam_beam_handler = beam_utils.BeamHandlerBolocam(bolocam_beam_fwhm, 11)
 
-        sfl_cmb = reproject.thumbnails(enmap_deconvolved_cmb, coords, r=cmb_radius_deg*60*utils.arcmin, res=1/3*utils.arcmin, proj='sfl')[0]
-        sfl_cmb = bolocam_beam_handler.convolve2d(sfl_cmb)
-        center_pix = np.array(sfl_cmb.shape) // 2
-        sfl_cmb = sfl_cmb[center_pix[0]-20:center_pix[0]+22, center_pix[1]-20:center_pix[1]+22]
+        # 20 arcsecond resolution
+        enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(enmap_bolocam_filtered.shape) + bolocam_beam_handler.get_pad_pixels(), hp_map, Bl, decimal_dec, decimal_ra, cmb_radius_deg, res=1/3, lmax=deconvolve_cmb_lmax, proj='sfl')
+        assert enmap_deconvolved_cmb.shape[0] % 2 == 0
+        assert enmap_deconvolved_cmb.shape[0] == enmap_deconvolved_cmb.shape[1]
 
-
+        # convolve CMB with Bolocam psf
+        enmap_deconvolved_cmb = bolocam_beam_handler.convolve2d(enmap_deconvolved_cmb)
+        
         # apply hanning
         hanning = np.outer(np.hanning(42), np.hanning(42))
         hanning /= np.mean(hanning)
-        sfl_cmb *= hanning
+        enmap_deconvolved_cmb *= hanning
 
         # filter cmb
-        transfer_function_hdul = fits.open(fpath_dict['transfer'])
+        transfer_function_hdul = fits.open(fpath_dict['bolocam_transfer'])
         signal_transfer_function_fft = transfer_function_hdul[0].data + 1j * transfer_function_hdul[1].data
-        sfl_cmb = np.real(fft.ifft2(fft.fft2(sfl_cmb) * signal_transfer_function_fft))
+        enmap_deconvolved_cmb = np.real(fft.ifft2(fft.fft2(enmap_deconvolved_cmb) * signal_transfer_function_fft))
 
-        enmap_bolocam_filtered = enmap.read_fits(fpath_dict['filtered'])
-        # wcs likely incorrect when read in this way so dont use the wcs
+        bolocam_map = enmap_bolocam_filtered - enmap_deconvolved_cmb
 
-        bolocam_map = enmap_bolocam_filtered - sfl_cmb
+        bolocam_err = fits.open(fpath_dict['bolocam_noise'])[0].data
+
+        
     else:
         bolocam_map = None
+        bolocam_err = None
         bolocam_beam_handler = None
 
-    return sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_beam_handler
+    return sfl_90_cmb_subtracted, sfl_150_cmb_subtracted, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_err, bolocam_beam_handler

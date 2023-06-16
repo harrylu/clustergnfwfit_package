@@ -3,8 +3,8 @@ import numpy as np
 from mpfit import mpfit
 import ellipsoid_model as ellipsoid_model
 
-
-def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None, err90=None, beam_handler_150=None, beam_handler_90=None, excise_regions=None, num_processes=None):
+# Fix code later, make less messy
+def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None, err90=None, beam_handler_150=None, beam_handler_90=None, bolocam_map=None, bolocam_err=None, beam_handler_bolocam=None, excise_regions=None):
     """Function to be minimized. Returns weighted deviations between model and data.
 
     Args:
@@ -31,23 +31,42 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
     # computed.  It will always be None if MPFIT is called with default
     # flag.
 
-    theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90 = p
+    theta, P0_150, P0_90, r_x, r_y, r_z, x_offset, y_offset, c_150, c_90, P0_bolocam, c_bolocam = p
+    gnfw_s_xy_sqr = ellipsoid_model.interp_gnfw_s_xy_sqr(1, r_x, r_y, r_z, R500)
 
-    psf_padding = beam_handler_150.get_pad_pixels()
+    psf_padding_act = beam_handler_150.get_pad_pixels()
     # can use this to make the 90 model beause only P0 is different
-    model_150_no_c = ellipsoid_model.eval_pixel_centers(theta, P0_150, r_x, r_y, r_z, 10, R500, x_offset, y_offset,
-                        (y150.shape[0] + psf_padding)*3, (y150.shape[1] + psf_padding)*3)
+    model_act_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, x_offset, y_offset,
+                        (y90.shape[0] + psf_padding_act)*3, (y90.shape[1] + psf_padding_act)*3)
     # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
-    model_150_no_c = ellipsoid_model.rebin_2d(model_150_no_c, (3, 3))
-    # use 150 to make 90 model because only P0 is different
-    model_90_no_c = np.copy(model_150_no_c) * (P0_90/P0_150)
+    model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
+
+    model_150_no_c = model_act_no_c * P0_150
+    model_90_no_c = model_act_no_c * P0_90
 
     model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
     model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
 
+    if beam_handler_bolocam is not None:
+        psf_padding_bolocam = beam_handler_bolocam.get_pad_pixels()
+        # eval bolocam at 5 arcsecond res, rebin to 20
+        model_bolo_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, x_offset, y_offset,
+                                                                        (bolocam_map.shape[0] + psf_padding_bolocam)*2, (bolocam_map.shape[1] + psf_padding_bolocam)*2)
+        model_bolo_no_c = ellipsoid_model.rebin_2d(model_bolo_no_c, (2, 2))
+        # use 150 to make bolocam model because only P0 is different
+        model_bolo_no_c = model_bolo_no_c * P0_bolocam
+
+        model_bolocam = beam_handler_bolocam.convolve2d(model_bolo_no_c + c_bolocam, cut_padding=True)
+
+
+
     if excise_regions is None:
         deviation150 = (y150.flatten() - model_150.flatten()) / err150.flatten()
         deviation90 = (y90.flatten() - model_90.flatten()) / err90.flatten()
+        if beam_handler_bolocam is not None:
+            deviation_bolocam = (bolocam_map.flatten() - model_bolocam.flatten()) / bolocam_err.flatten()
+        else:
+            deviation_bolocam = np.array([])
     else:
         # mark excised region indices
         for region in excise_regions:
@@ -83,10 +102,11 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
     status = 0
     # print('model', model)
     # print('y', y)
-    return [status, np.concatenate((deviation150, deviation90))]
+    return [status, np.concatenate((deviation150, deviation90, deviation_bolocam))]
 
 
-def mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90, err150, err90, parinfo, excise_regions=None, num_processes=4):
+def mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, y150, y90, err150, err90, parinfo,
+                                   bolocam_map=None, bolocam_err=None, beam_handler_bolocam=None, excise_regions=None):
     """Uses mpfit to simultaneously fit 2 maps to one gNFW model that only differs with different P0s and cs for each.
 
     Args:
@@ -113,7 +133,8 @@ def mpfit_ellipsoidal_simultaneous(R500, beam_handler_150, beam_handler_90, y150
     
     fa = {'R500': R500, 'y150': y150, 'y90': y90, 'err150': err150, 'err90': err90,
           'beam_handler_150': beam_handler_150, 'beam_handler_90': beam_handler_90,
-          'excise_regions': excise_regions, 'num_processes': num_processes}
+          'bolocam_map': bolocam_map, 'bolocam_err': bolocam_err, 'beam_handler_bolocam': beam_handler_bolocam, 
+          'excise_regions': excise_regions,}
     m = mpfit(myfunctgnfw_simul, parinfo=parinfo, functkw=fa)
 
     return m
