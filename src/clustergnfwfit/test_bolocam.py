@@ -53,7 +53,7 @@ cmb_radius_deg = 0.503
 # 20 arcsecond resolution
 # we need to add 10 arcsecond offset, then cut afterwards to match bolocam's 42 x 42 pixels (no center pixel)
 ten_arcseconds_deg = 0.00277778
-enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_fft(hp_map, Bl, decimal_dec + ten_arcseconds_deg, decimal_ra + ten_arcseconds_deg, cmb_radius_deg, res=1/3, lmax=2000)
+enmap_deconvolved_cmb = deconvolution.get_deconvolved_map_odd(hp_map, Bl, decimal_dec + ten_arcseconds_deg, decimal_ra + ten_arcseconds_deg, cmb_radius_deg, res=1/3, lmax=2000)
 
 # 11 pixels wide
 # sum equals 1 for psf
