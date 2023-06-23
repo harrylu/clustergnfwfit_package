@@ -144,8 +144,8 @@ if __name__ == "__main__":
                 model_act_no_c = model_no_c
             model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
 
-            model_150_no_c = model_act_no_c * p0_90
-            model_90_no_c = model_act_no_c * p0_150
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
 
             model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
             model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
@@ -170,8 +170,8 @@ if __name__ == "__main__":
             # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
             model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
 
-            model_150_no_c = model_act_no_c * p0_90
-            model_90_no_c = model_act_no_c * p0_150
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
 
             model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
             model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)

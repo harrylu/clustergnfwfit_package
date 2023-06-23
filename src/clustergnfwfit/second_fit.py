@@ -236,7 +236,7 @@ if __name__ == "__main__":
     sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_err, beam_handler_bolocam = extract_maps(fpath_dict,
                     dec, ra, map_radius, verbose=False)
     
-    first_fit_backend = 'emcee_backend_6k_w_bolocam.h5'
+    first_fit_backend = 'emcee_backend_7777.h5'
 
     reader = emcee.backends.HDFBackend(first_fit_backend)
 
@@ -298,8 +298,8 @@ if __name__ == "__main__":
                 model_act_no_c = model_no_c
             model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
 
-            model_150_no_c = model_act_no_c * p0_90
-            model_90_no_c = model_act_no_c * p0_150
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
 
             model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
             model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
@@ -324,8 +324,8 @@ if __name__ == "__main__":
             # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
             model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
 
-            model_150_no_c = model_act_no_c * p0_90
-            model_90_no_c = model_act_no_c * p0_150
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
 
             model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
             model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
@@ -359,7 +359,7 @@ if __name__ == "__main__":
 
     # Set up the backend
     # Don't forget to clear it in case the file already exists
-    filename = "emcee_backend_2nd_fit.h5"
+    filename = "emcee_backend_2nd_7777.h5"
     backend = emcee.backends.HDFBackend(filename)
     # reset if we want to start from scratch
     if START_OVER:

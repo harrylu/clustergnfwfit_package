@@ -220,7 +220,7 @@ def demo_fits_maps_and_di_ellipse():
     # based on previous fit done on MACSJ0025.4
 
     # This part demonstrates making the map that will go into the fits file.
-    # The map is centered and 470*470 pixels with 4 arcsecond pixels
+    # 470*470 pixels with 4 arcsecond pixels
 
     dec = [-12, -22, -45]  # in degrees, minutes, seconds
     ra = [0, 25, 29.9]     # in hours, minutes, seconds
