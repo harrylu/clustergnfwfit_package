@@ -1,4 +1,3 @@
-Fits file should still have x, y offset, so
-The faster eval of fits map is now useless
-Task: Change to normal eval and include offset
-
+Radial profile of PSF
+Trace Chi-sq
+Corner plot
