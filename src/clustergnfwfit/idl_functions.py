@@ -1,5 +1,9 @@
 import os
 import numpy as np
+import szpack_bindings
+import scipy as sp
+import scipy.io
+import scipy.interpolate
 
 def rsz_get_mass_weighted_xray_temperature():
     # use the MCMC files produced for the pressure profile project
@@ -33,7 +37,7 @@ def rsz_get_mass_weighted_xray_temperature():
     pressure_dat_path = pressure_path + '.dat'
     pressure_float_data = np.loadtxt(pressure_dat_path, skiprows=1, usecols=(0, 4, 5, 6)).T
     xray_radius, xray_pressure, xray_pressure_lo, xray_pressure_hi = np.split(pressure_float_data, 4, axis=0)
-    xray_radius = xray_radius[0]
+    xray_radius = xray_radius[0]    # get 1d np array
     pressure_txt_path = pressure_path + '.txt'
     xray_pressure = np.loadtxt(pressure_txt_path).T
     xray_use = np.loadtxt(pressure_dat_path, skiprows=1, usecols=(3), dtype=str).T
@@ -99,7 +103,7 @@ def rsz_get_mass_weighted_xray_temperature():
     # compute the mass-weighted temperature
     un_normalized_density = xray_pressure / xray_temperature
     n_jk = np.size(xray_pressure[0])
-    weight = np.outer(xray_radius**2 * un_normalized_density[:, 0], np.full((n_jk), 1))
+    weight = np.outer(xray_radius**2 * un_normalized_density[:, 0], np.full((n_jk), 1.))
     numerator = np.sum(xray_temperature * weight, axis=0)
     denominator = np.sum(weight, axis=0)
     mass_weighted_temperature = numerator / denominator
@@ -114,7 +118,143 @@ def rsz_get_mass_weighted_xray_temperature():
 
     print(f"max R/R500 = {np.max(xray_radius)}")
 
+def compute_sz_spectrum(nu, optical_depth=0.01, temperature=10., vpec=0., fast=False, cmb_units=False, file_prefix=''):
+
+    if vpec < 0:
+        vpec = np.abs(vpec)
+        vpec_direction = -1.0
+    else:
+        vpec_direction = 1.0
+
+    # use a reasonable number of points in the calculation
+    npoints = 100
+
+    # find the min/max frequencies
+    kB = 1.381e-23
+    hPlanck = 6.626e-34
+    Tcmb = 2.725
+    cLight = 3.e8
+    x = nu * hPlanck / (kB * Tcmb)
+    min_x = min(x) * 0.8
+    max_x = max(x) / 0.8
+
+    # call Python SZpack bindings
+    xo =  np.geomspace(min_x, max_x, num=npoints)
+
+    betao = 0.001241
+    muo = 0
+
+    Te_order = 20           # ignored in 3D, 5D
+    betac_order = 2         # ignored in 3D, 5D
+    eps_Int = 1.0e-4        # only used in 3D, 5D
+
+    kmax = 4                # only for CNSNopt
+    accuracy_level = 2      # only for CNSNopt
+
+    if fast:
+        sz_output = szpack_bindings.output_SZ_distortion_asymptotic_vector(xo, optical_depth, temperature, vpec, vpec_direction, betao, muo, Te_order, betac_order)
+    else:
+        sz_output = szpack_bindings.output_SZ_distortion_5D_vector(xo, optical_depth, temperature, vpec, vpec_direction, betao, muo, eps_Int)
+
+    # extract the output of SZpack
+    xarr, val1, val2 = zip(*sz_output)
+
+    # interpolate to the desired frequencies
+    spectrum = np.interp(x[:nu.size], xarr, val1)
+    
+    # multiply by I0 in order to obtain output in MJy/ster
+    I0 = 2. * ( (kB * Tcmb) / (hPlanck * cLight)**(2./3.) )**3. * 1.e20
+    spectrum = spectrum * I0
+
+    if cmb_units:
+        raise Exception('cmb_units flag Not implemented')
+        # x = hPlanck * nu / (kB * Tcmb)
+        # h = x * np.exp(x) / (np.exp(x) - 1.)
+        # ICMB = planck_bnu(nu, Tcmb) / 1.e-20
+        # spectrum = Tcmb * 1.e6 / h * spectrum / ICMB
+
+    return spectrum
+
 def calc_spire_band_centers():
+    t_array = np.arange(151.)/2. + 1.e-7
+    
+    # in place of IDL's printf
+    outfile = 'data/rSZ/band_centers_20210810.txt'
+    f_buffer = []
+
+    bolocam = np.full((t_array.size), 0.)
+    plw = np.full((t_array.size), 0.)
+    pmw = np.full((t_array.size), 0.)
+    psw = np.full((t_array.size), 0.)
+
+    def get_freq_trans(spire_dat_fpath):
+            wavelength, trans = np.split(np.loadtxt(spire_dat_fpath).T, 2, axis=0)
+            # get 1d np array
+            wavelength = wavelength[0]
+            trans = trans[0]
+
+            freq = 3.e8 / wavelength * 1.e10
+            return freq, trans
+
+    freq_plw, trans_plw = get_freq_trans('data/rSZ/Herschel_SPIRE.PLW.dat')
+    freq_pmw, trans_pmw = get_freq_trans('data/rSZ/Herschel_SPIRE.PMW.dat')
+    freq_psw, trans_psw = get_freq_trans('data/rSZ/Herschel_SPIRE.PSW.dat')
+
+    
+    for i_temp in range(2):#range(t_array.size):
+        temperature = t_array[i_temp]
+        print(temperature)
+
+        SZ_sig = compute_sz_spectrum(freq_plw, temperature=temperature)
+        plw[i_temp] = np.sum(freq_plw * SZ_sig * trans_plw) / np.sum(SZ_sig * trans_plw) * 1.e-9
+
+        SZ_sig = compute_sz_spectrum(freq_pmw, temperature=temperature)
+        pmw[i_temp] = np.sum(freq_pmw * SZ_sig * trans_pmw) / np.sum(SZ_sig * trans_pmw) * 1.e-9
+        
+        SZ_sig = compute_sz_spectrum(freq_psw, temperature=temperature)
+        psw[i_temp] = np.sum(freq_psw * SZ_sig * trans_psw) / np.sum(SZ_sig * trans_psw) * 1.e-9
+
+        # super duper big extrapolation here
+        # restore IDL .sav
+        trans_mm_sav = sp.io.readsav('data/idl_savs/trans_1.5mm.sav')
+        # atm_trans_interp = np.interp(freq_psw, trans_mm_sav['nu'], trans_mm_sav['trans_2mm'])
+        interp = sp.interpolate.interp1d(trans_mm_sav['nu'], trans_mm_sav['trans_2mm'], fill_value="extrapolate")
+        atm_trans_interp = interp(freq_psw)
+        trans = trans_psw * atm_trans_interp
+        
+        spectra_mm_sav = sp.io.readsav('data/idl_savs/2mm_spectra.sav')
+        spec_nu = spectra_mm_sav['spec_nu']
+        spec = spectra_mm_sav['spec']
+
+        lissajous_sav = sp.io.readsav('data/idl_savs/coadd_clean_lissajous_skysub_250mHz_psdfit_nosig.sav')
+        mapstruct = lissajous_sav['mapstruct']
+        freq = spec_nu / 1.e9
+        trans = spec[:, mapstruct['goodbolos'][0]]
+        trans = np.median(trans, axis=1)
+        interp = sp.interpolate.interp1d(trans_mm_sav['nu'], trans_mm_sav['trans_15mm'], fill_value="extrapolate")
+        atm_trans_interp = interp(freq)
+        trans = trans * atm_trans_interp
+        trans[(freq >= 170.) | (freq <= 120.)] = 0
+        SZ_spec = compute_sz_spectrum(freq*1.e9, temperature=temperature)
+        
+        bolocam[i_temp] = np.sum(freq * SZ_spec * trans) / np.sum(SZ_spec * trans)
+        f_buffer.append([temperature, bolocam[i_temp], plw[i_temp], pmw[i_temp], psw[i_temp]])
+    
+    np.savetxt(outfile, f_buffer, fmt='%.2f', header='T (keV)\tBolocam\tPLW\tPMW\tPSW', delimiter='\t')
+
+        
+        
+
+    print(plw)
+    input()
+    print(pmw)
+    input()
+    print(psw)
+    input()
+
+        
+
+def act_bandpass_stuff():
     from pixell import enmap
     import os
     MAP_FITS_DIR = "/home/harry/clustergnfwfit_package/data/map_fits_files"
@@ -143,7 +283,21 @@ def calc_spire_band_centers():
     noisebox_150 = enmap.read_map(path_150)
     weights_150 = np.sum(noisebox_150, axis=(0, 2, 3, 4)) / np.sum(noisebox_150)
     bandpass_by_freq_150 = {freq: np.sum(bandpasses * weights_150) for freq, bandpasses in bandpasses_by_freq.items()}
-    
+
 
 if __name__ == "__main__":
+    # # test compute_sz_spectrum
+    # wavelength, trans = np.split(np.loadtxt('data/rSZ/Herschel_SPIRE.PLW.dat').T, 2, axis=0)
+    # wavelength = wavelength[0]  # get 1d np array
+    # freq = 3.e8 / wavelength * 1.e10
+
+    # t_array = np.arange(151.)/2. + 1.e-7
+    # temperature = t_array[0]
+
+    # szpack_bindings.load_lib('src/clustergnfwfit/SZpack.v1.1.1/libSZpack.so')
+
+    # print(compute_sz_spectrum(freq, temperature=temperature))
+    
+    szpack_bindings.load_lib('src/clustergnfwfit/SZpack.v1.1.1/libSZpack.so')
+
     calc_spire_band_centers()
