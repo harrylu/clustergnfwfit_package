@@ -7,6 +7,7 @@ import scipy.fft
 import scipy.interpolate
 import astropy.convolution
 from astropy.modeling.functional_models import Gaussian2D
+from pixell import enmap
 
 class BeamHandler:
     """
@@ -135,6 +136,8 @@ class BeamHandler:
         """
         
         convolved = astropy.convolution.convolve_fft(arr, self.beam_map, normalize_kernel=True)
+        if hasattr(arr, 'wcs'):
+            convolved = enmap.ndmap(convolved, arr.wcs)
         if cut_padding:
             half_pad = self.get_pad_pixels()//2
             convolved = convolved[half_pad:-half_pad, half_pad:-half_pad]

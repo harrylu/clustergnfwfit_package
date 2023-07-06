@@ -4,7 +4,10 @@ import szpack_bindings
 import scipy as sp
 import scipy.io
 import scipy.interpolate
+from pixell import enmap
+import os
 
+'''
 def rsz_get_mass_weighted_xray_temperature():
     # use the MCMC files produced for the pressure profile project
     redshift = 0.451
@@ -117,6 +120,103 @@ def rsz_get_mass_weighted_xray_temperature():
     print(f"sigma_T = {np.sqrt((np.std(mass_weighted_temperature) / 1.09)**2 + (np.median(mass_weighted_temperature) / 1.09 * 0.13)**2)}")
 
     print(f"max R/R500 = {np.max(xray_radius)}")
+'''
+    
+def get_pressure_weighted_xray_temperature():
+    # use the MCMC files produced for the pressure profile project
+    redshift = 0.451
+    cluster = 'rxj1347.5-1145'
+    cosmology = 'standard_cosmology'
+    data_dir = 'data/planck/'
+
+    # get the mass and scale radius
+    r500_m500_path = os.path.join(data_dir, 'Mantz_Xray_masses',
+                                cosmology, cluster + '_r500_M500.txt')
+    this_xray_r500, this_xray_m500 = np.split(np.loadtxt(r500_m500_path).T, 2, axis=0)
+
+    r500 = np.median(this_xray_r500)
+    r2500 = 0.71
+    m500 = np.median(this_xray_m500) * 1.e-14
+
+    # get the pressure profile values
+    conversions_path = os.path.join(data_dir, 'Mantz_Xray_pressures',
+                                    cosmology, cluster + '_conversions.txt')
+    xray_conversions = []
+    with open(conversions_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip(' ').split(' ')
+            if line[0][0] != '-' and len(line) == 3:
+                xray_conversions.append(float(line[1]))
+    xray_conversions = np.array(xray_conversions)
+
+    pressure_path = os.path.join(data_dir, 'Mantz_Xray_pressures',
+                                 cluster + '_pressure')
+    pressure_dat_path = pressure_path + '.dat'
+    pressure_float_data = np.loadtxt(pressure_dat_path, skiprows=1, usecols=(0, 4, 5, 6)).T
+    xray_radius, xray_pressure, xray_pressure_lo, xray_pressure_hi = np.split(pressure_float_data, 4, axis=0)
+    xray_radius = xray_radius[0]    # get 1d np array
+    pressure_txt_path = pressure_path + '.txt'
+    xray_pressure = np.loadtxt(pressure_txt_path).T
+    xray_use = np.loadtxt(pressure_dat_path, skiprows=1, usecols=(3), dtype=str).T
+    
+    valid_xray = np.nonzero((xray_use == 'TRUE'))[0]
+    xray_pressure = xray_pressure[valid_xray]
+    # xray_radius = xray_radius[valid_xray] * xray_conversions[1] / r500[0]
+    xray_radius = xray_radius[valid_xray] * xray_conversions[1] / r2500
+
+    # get the temperature profile values
+    temperature_path = os.path.join(data_dir, 'Mantz_Xray_temperatures',
+                                    cosmology, cluster + '_temperature.txt')
+    xray_t = np.loadtxt(temperature_path).T
+    xray_temperature = xray_t[valid_xray]
+
+    # create a data cube to integrate
+    dx = 0.01
+    max_x = 1
+    max_z = np.max(xray_radius)
+    x1d = np.arange(np.round(max_x*2/dx)+1) * dx
+    x1d = x1d - np.mean(x1d)
+    z1d = np.arange(np.round(max_z*2/dx)+1) * dx
+    z1d = z1d - np.mean(z1d)
+    nx = np.size(x1d)
+    nz = np.size(z1d)
+    x3d = np.zeros((nx, nx, nz))
+    y3d = np.zeros((nx, nx, nz))
+    z3d = np.zeros((nx, nx, nz))
+    for iy in range(nx):
+        for iz in range(nz):
+            x3d[:, iy, iz] = x1d
+    for ix in range(nx):
+        for iz in range(nz):
+            y3d[ix, :, iz] = x1d
+    for ix in range(nx):
+        for iy in range(nx):
+            x3d[ix, iy, :] = z1d
+    r3d = np.sqrt(x3d**2 + y3d**2 + z3d**2)
+    r2d = np.sqrt(x3d**2 + y3d**2)
+    valid = (r2d <= 1)  # not actually translation from IDL, but easier for Python
+
+    un_normalized_density = xray_pressure / xray_temperature
+    n_jk = 100
+    mw_temperature = np.zeros((n_jk))
+    pw_temperature = np.zeros((n_jk))
+    for i_jk in range(n_jk):
+        temperature_3d = np.interp(r3d, xray_radius, xray_temperature[:, i_jk])
+        density_3d = np.interp(r3d, xray_radius, un_normalized_density[:, i_jk])
+        pressure_3d = np.interp(r3d, xray_radius, xray_pressure[:, i_jk])
+
+        mw_temperature[i_jk] = np.sum(temperature_3d[valid] * density_3d[valid]) / np.sum(density_3d[valid])
+        pw_temperature[i_jk] = np.sum(temperature_3d[valid] * pressure_3d[valid]) / np.sum(pressure_3d[valid])
+
+    # correct for bias of 0.09 +- 0.13 found in Wan et al.
+    print(f"T_mw = {np.median(mw_temperature) / 1.09}")
+    print(f"sigma_T = {np.sqrt((np.std(mw_temperature) / 1.09)**2 + (np.median(mw_temperature) / 1.09 * 0.13)**2)}")
+
+    # correct for bias of 0.09 +- 0.13 found in Wan et al.
+    print(f"T_pw = {np.median(pw_temperature) / 1.09}")
+    print(f"sigma_T = {np.sqrt((np.std(pw_temperature) / 1.09)**2 + (np.median(pw_temperature) / 1.09 * 0.13)**2)}")
+
+    return np.median(pw_temperature) / 1.09
 
 def compute_sz_spectrum(nu, optical_depth=0.01, temperature=10., vpec=0., fast=False, cmb_units=False, file_prefix=''):
 
@@ -175,6 +275,7 @@ def compute_sz_spectrum(nu, optical_depth=0.01, temperature=10., vpec=0., fast=F
 
     return spectrum
 
+'''
 def calc_spire_band_centers():
     t_array = np.arange(151.)/2. + 1.e-7
     
@@ -241,22 +342,60 @@ def calc_spire_band_centers():
         f_buffer.append([temperature, bolocam[i_temp], plw[i_temp], pmw[i_temp], psw[i_temp]])
     
     np.savetxt(outfile, f_buffer, fmt='%.2f', header='T (keV)\tBolocam\tPLW\tPMW\tPSW', delimiter='\t')
+'''
+    
+def calc_bolo_and_spire_band_centers(T_x):
+    # T_x is pressure_weighted X-ray temperature
 
-        
-        
+    def get_freq_trans(spire_dat_fpath):
+            wavelength, trans = np.split(np.loadtxt(spire_dat_fpath).T, 2, axis=0)
+            # get 1d np array
+            wavelength = wavelength[0]
+            trans = trans[0]
 
-    print(plw)
-    input()
-    print(pmw)
-    input()
-    print(psw)
-    input()
+            freq = 3.e8 / wavelength * 1.e10
+            return freq, trans
 
-        
+    freq_plw, trans_plw = get_freq_trans('data/rSZ/Herschel_SPIRE.PLW.dat')
+    freq_pmw, trans_pmw = get_freq_trans('data/rSZ/Herschel_SPIRE.PMW.dat')
+    freq_psw, trans_psw = get_freq_trans('data/rSZ/Herschel_SPIRE.PSW.dat')
 
-def act_bandpass_stuff():
-    from pixell import enmap
-    import os
+    SZ_sig = compute_sz_spectrum(freq_plw, temperature=T_x)
+    plw = np.sum(freq_plw * SZ_sig * trans_plw) / np.sum(SZ_sig * trans_plw) * 1.e-9
+
+    SZ_sig = compute_sz_spectrum(freq_pmw, temperature=T_x)
+    pmw = np.sum(freq_pmw * SZ_sig * trans_pmw) / np.sum(SZ_sig * trans_pmw) * 1.e-9
+    
+    SZ_sig = compute_sz_spectrum(freq_psw, temperature=T_x)
+    psw = np.sum(freq_psw * SZ_sig * trans_psw) / np.sum(SZ_sig * trans_psw) * 1.e-9
+
+    # super duper big extrapolation here
+    # restore IDL .sav
+    trans_mm_sav = sp.io.readsav('data/idl_savs/trans_1.5mm.sav')
+    # atm_trans_interp = np.interp(freq_psw, trans_mm_sav['nu'], trans_mm_sav['trans_2mm'])
+    interp = sp.interpolate.interp1d(trans_mm_sav['nu'], trans_mm_sav['trans_2mm'], fill_value="extrapolate")
+    atm_trans_interp = interp(freq_psw)
+    trans = trans_psw * atm_trans_interp
+    
+    spectra_mm_sav = sp.io.readsav('data/idl_savs/2mm_spectra.sav')
+    spec_nu = spectra_mm_sav['spec_nu']
+    spec = spectra_mm_sav['spec']
+
+    lissajous_sav = sp.io.readsav('data/idl_savs/coadd_clean_lissajous_skysub_250mHz_psdfit_nosig.sav')
+    mapstruct = lissajous_sav['mapstruct']
+    freq = spec_nu / 1.e9
+    trans = spec[:, mapstruct['goodbolos'][0]]
+    trans = np.median(trans, axis=1)
+    interp = sp.interpolate.interp1d(trans_mm_sav['nu'], trans_mm_sav['trans_15mm'], fill_value="extrapolate")
+    atm_trans_interp = interp(freq)
+    trans = trans * atm_trans_interp
+    trans[(freq >= 170.) | (freq <= 120.)] = 0
+    SZ_spec = compute_sz_spectrum(freq*1.e9, temperature=T_x)
+    
+    bolocam = np.sum(freq * SZ_spec * trans) / np.sum(SZ_spec * trans)
+    return bolocam, plw, pmw, psw
+
+def get_act_band_centers(T_x):
     MAP_FITS_DIR = "/home/harry/clustergnfwfit_package/data/map_fits_files"
     FNAME_FULLIVAR_90 = "act_planck_dr5.01_s08s18_AA_f090_night_fullivar.fits"
     FNAME_FULLIVAR_150 = "act_planck_dr5.01_s08s18_AA_f150_night_fullivar.fits"
@@ -270,20 +409,31 @@ def act_bandpass_stuff():
 
     bandpasses_txt = np.loadtxt(path_bandpasses_txt)
     bandpasses_by_freq = {freq: bandpasses for freq, bandpasses in zip(bandpasses_txt[:, 0], bandpasses_txt[:, 1:])}
-    def get_act_band_centers(full_ivar_path):
+    def get_act_band_center(full_ivar_path, T_x):
         noisebox = enmap.read_map(full_ivar_path)
         weights = np.sum(noisebox, axis=(0, 2, 3, 4)) / np.sum(noisebox)
         bandpass_by_freq = {freq: np.sum(bandpasses * weights) for freq, bandpasses in bandpasses_by_freq.items()}
+        nus = np.array(list(bandpass_by_freq.keys()))
+        Bs = np.array(list(bandpass_by_freq.values()))
+        SZs = compute_sz_spectrum(nus, temperature=T_x)
+        band_center = np.sum(nus * Bs * SZs) / np.sum(Bs * SZs)
+        return band_center
+        
+    band_center_90 = get_act_band_center(path_90, T_x)
+    band_center_150 = get_act_band_center(path_150, T_x)
+    return band_center_90, band_center_150
 
 
-    noisebox_90 = enmap.read_map(path_90)
-    weights_90 = np.sum(noisebox_90, axis=(0, 2, 3, 4)) / np.sum(noisebox_90)
-    bandpass_by_freq_90 = {freq: np.sum(bandpasses * weights_90) for freq, bandpasses in bandpasses_by_freq.items()}
+def fit_tau_e(nu_bolocam, nu_90, nu_150, dI_bolocam, dI_90, dI_150, T_x):
+    # solve for tau_e
+    SZ_bolocam = compute_sz_spectrum(np.array([nu_bolocam * 1.e9]), temperature=T_x)[0]
+    SZ_90 = compute_sz_spectrum(np.array([nu_90 * 1.e9]), temperature=T_x)[0]
+    SZ_150 = compute_sz_spectrum(np.array([nu_150 * 1.e9]), temperature=T_x)[0]
+    a = np.array([[SZ_bolocam, SZ_90, SZ_150]]).T
+    b = np.array([[dI_bolocam, dI_90, dI_150]]).T
 
-    noisebox_150 = enmap.read_map(path_150)
-    weights_150 = np.sum(noisebox_150, axis=(0, 2, 3, 4)) / np.sum(noisebox_150)
-    bandpass_by_freq_150 = {freq: np.sum(bandpasses * weights_150) for freq, bandpasses in bandpasses_by_freq.items()}
-
+    return np.linalg.lstsq(a, b, rcond=None)[0].item()
+    
 
 if __name__ == "__main__":
     # # test compute_sz_spectrum
@@ -300,4 +450,28 @@ if __name__ == "__main__":
     
     szpack_bindings.load_lib('src/clustergnfwfit/SZpack.v1.1.1/libSZpack.so')
 
-    calc_spire_band_centers()
+    T_x = get_pressure_weighted_xray_temperature()
+    print(f"T_x: {T_x}")
+    '''print(get_act_band_centers(T_x))
+    print(calc_bolo_and_spire_band_centers(T_x))'''
+    dI_bolocam = -0.06574289458125768
+    dI_90 = -0.055038506500878444 
+    dI_150 = -0.07087949612959649
+
+    nu_bolocam, nu_plw, nu_pmw, nu_psw = calc_bolo_and_spire_band_centers(T_x)
+    print('nu_bolocam, nu_plw, nu_pmw, nu_psw')
+    print(nu_bolocam, nu_plw, nu_pmw, nu_psw)
+    nu_90, nu_150 = get_act_band_centers(T_x)
+    print('nu_90, nu_150')
+    print(nu_90, nu_150)
+    tau_e = fit_tau_e(nu_bolocam, nu_90, nu_150, dI_bolocam, dI_90, dI_150, T_x)
+    # tau_e = 6.5148492177636056e+16
+    print('tau_e')
+    print(tau_e)
+    dI_spire_plw = (compute_sz_spectrum(np.array([nu_plw * 1.e9]), temperature=T_x) * tau_e)[0]
+    dI_spire_pmw = (compute_sz_spectrum(np.array([nu_pmw * 1.e9]), temperature=T_x) * tau_e)[0]
+    dI_spire_psw = (compute_sz_spectrum(np.array([nu_psw * 1.e9]), temperature=T_x) * tau_e)[0]
+
+    print(f'dI_spire_plw: {dI_spire_plw}')
+    print(f'dI_spire_pmw: {dI_spire_pmw}')
+    print(f'dI_spire_psw: {dI_spire_psw}')
