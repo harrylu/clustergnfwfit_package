@@ -45,48 +45,70 @@ def get_covar_act(num_pairs, batch_size, fpath_dict,
     realizations_90 = []
     realizations_150 = []
     while len(realizations_90) < num_pairs:
-        cmb_subtracted_90, cmb_subtracted_150 = extract_maps.extract_act_maps_for_covar(batch_size, fpath_dict, dec, ra, pick_sample_radius, map_radius, deconvolve_cmb_lmax, verbose, even_maps)
         print(len(realizations_90))
+        cmb_subtracted_90, cmb_subtracted_150 = extract_maps.extract_act_maps_for_covar(batch_size, fpath_dict, dec, ra, pick_sample_radius, map_radius, deconvolve_cmb_lmax, verbose, even_maps)
         
         for map_90, map_150 in zip(cmb_subtracted_90, cmb_subtracted_150):
-            blurred_90 = scipy.ndimage.gaussian_filter(map_90, (1, 1))
-            blurred_150 = scipy.ndimage.gaussian_filter(map_150, (1, 1))
-            print(np.mean(map_90))
-            print(np.mean(map_150))
+            
+            blurred_90 = scipy.ndimage.gaussian_filter(map_90, (2, 2))
+            blurred_150 = scipy.ndimage.gaussian_filter(map_150, (2, 2))
 
-            z, p = scipy.stats.skewtest(blurred_90, axis=None)
-            print(f"skew 90 blurred; z: {z}, p: {p}")
-            z, p = scipy.stats.kurtosistest(blurred_90, axis=None)
-            print(f"kurtosis 90 blurred; z: {z}, p: {p}")
-            z, p = scipy.stats.skewtest(blurred_150, axis=None)
-            print(f"skew 150 blurred; z: {z}, p: {p}")
-            z, p = scipy.stats.kurtosistest(blurred_150, axis=None)
-            print(f"kurtosis 150 blurred; z: {z}, p: {p}")
+            # z, p = scipy.stats.skewtest(blurred_90, axis=None)
+            # print(f"skew 90 blurred; z: {z}, p: {p}")
+            # z, p = scipy.stats.kurtosistest(blurred_90, axis=None)
+            # print(f"kurtosis 90 blurred; z: {z}, p: {p}")
+            # z, p = scipy.stats.skewtest(blurred_150, axis=None)
+            # print(f"skew 150 blurred; z: {z}, p: {p}")
+            # z, p = scipy.stats.kurtosistest(blurred_150, axis=None)
+            # print(f"kurtosis 150 blurred; z: {z}, p: {p}")
 
-            # z, p = scipy.stats.skewtest(map_90, axis=None)
+            z_sk_90, p_sk_90 = scipy.stats.skewtest(map_90, axis=None)
             # print(f"skew 90; z: {z}, p: {p}")
-            # z, p = scipy.stats.kurtosistest(map_90, axis=None)
+            z_k_90, p_k_90 = scipy.stats.kurtosistest(map_90, axis=None)
             # print(f"kurtosis 90; z: {z}, p: {p}")
-            # z, p = scipy.stats.skewtest(map_150, axis=None)
+            z_sk_150, p_sk_150 = scipy.stats.skewtest(map_150, axis=None)
             # print(f"skew 150; z: {z}, p: {p}")
-            # z, p = scipy.stats.kurtosistest(map_150, axis=None)
+            z_k_150, p_k_150 = scipy.stats.kurtosistest(map_150, axis=None)
             # print(f"kurtosis 150; z: {z}, p: {p}")
-            from matplotlib import cm
-            plt.figure('90 blurred')
-            plt.imshow(blurred_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
+            # from matplotlib import cm
+            # plt.figure('90 blurred')
+            # plt.imshow(blurred_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
 
-            plt.figure('150 blurred')
-            plt.imshow(blurred_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
+            # plt.figure('150 blurred')
+            # plt.imshow(blurred_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
+            # plt.show()
 
+            max_90 = np.max(np.abs(blurred_90))
+            if max_90 > 100:
+                print(f"Rejected, max(abs(blurred_90)) is {max_90} > 100")
+                continue
 
-            plt.show()
+            max_150 = np.max(np.abs(blurred_150))
+            if max_150 > 100:
+                print(f"Rejected, max(abs(blurred_150)) is {max_150} > 100")
+                continue
 
-
+            if p_sk_90 * p_k_90 < 0.2:
+                print(f"Rejected, P values of skew * kurtosis is {p_sk_90 * p_k_90} > 0.2")
+                continue
+            if p_sk_150 * p_k_150 < 0.2:
+                print(f"Rejected, P values of skew * kurtosis is {p_sk_150 * p_k_150} > 0.2")
+                continue
             
             print("Accepted")
-            realizations_90.append(cmb_subtracted_90.flatten())
-            realizations_150.append(cmb_subtracted_150.flatten())
-            continue
+            realizations_90.append(map_90.flatten())
+            realizations_150.append(map_150.flatten())
+
+            # from matplotlib import cm
+            # plt.figure('90 blurred')
+            # plt.imshow(blurred_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
+
+            # plt.figure('150 blurred')
+            # plt.imshow(blurred_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
+            # plt.show()
+
+            if len(realizations_90) >= num_pairs:
+                break
         continue
 
 
@@ -317,7 +339,7 @@ if __name__ == "__main__":
     #                                 dec, ra, map_radius,
     #                                 deconvolve_cmb_lmax=2000, verbose=False, even_maps=True)
 
-    batch_size = 100
+    batch_size = 1000
     act_90_covar_10, act_150_covar_10 = get_covar_act(10, batch_size, fpath_dict,
                                     dec, ra, pick_sample_radius, map_radius,
                                     deconvolve_cmb_lmax=2000, verbose=True, even_maps=True)
