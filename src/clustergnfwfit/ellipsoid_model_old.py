@@ -111,8 +111,7 @@ def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples=100, epsabs=1.49e-
         evaluated_gnfw.append(
             scipy.integrate.quad(lambda z: f_gnfw_s_xy_sqr_ellipsoid(s_xy_sqr, z, r_z, p0), 0, upper_z_bound, epsabs=epsabs, epsrel=epsrel)[0] * 2
             )
-    # interp = scipy.interpolate.interp1d(s_xy_sqr_samples, evaluated_gnfw, kind='linear', fill_value=0, bounds_error=False, assume_sorted=True)
-    interp = lambda x: np.interp(x, s_xy_sqr_samples, evaluated_gnfw)
+    interp = scipy.interpolate.interp1d(s_xy_sqr_samples, evaluated_gnfw, kind='linear', fill_value=0, bounds_error=False, assume_sorted=True)
     return interp
 
 # ONLY FOR TESTING PURPOSES; TOO SLOW OTHERWISE
@@ -172,8 +171,7 @@ def eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, arcseconds_per
     center_pix_x = (img_width - 1) / 2 + (offset_x / arcseconds_per_pixel)
     center_pix_y = (img_height - 1) / 2 + (offset_y / arcseconds_per_pixel)
     pixels = np.zeros((img_height, img_width))
-
-    def get_s_xy_sqr_with_rot(x, y):
+    def f_gnfw_s_xy_sqr_with_rot(x, y):
         # x, y are in arcseconds, (0, 0) is center of ellipsoid
         x_rot = x*np.cos(theta) - y*np.sin(theta)
         y_rot = x*np.sin(theta) + y*np.cos(theta)
@@ -182,25 +180,15 @@ def eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, arcseconds_per
         if s_xy_sqr < 0.000001: # 0.000001 = 0.001^2
             s_xy_sqr = 0.000001
 
-        return s_xy_sqr
-
-    # def f_gnfw_s_xy_sqr_with_rot(x, y):
-    #     # x, y are in arcseconds, (0, 0) is center of ellipsoid
-    #     x_rot = x*np.cos(theta) - y*np.sin(theta)
-    #     y_rot = x*np.sin(theta) + y*np.cos(theta)
-    #     s_xy_sqr = (x_rot/r_x)**2 + (y_rot/r_y)**2
-
-    #     if s_xy_sqr < 0.000001: # 0.000001 = 0.001^2
-    #         s_xy_sqr = 0.000001
-
-    #     return gnfw_s_xy_sqr(s_xy_sqr)
+        return gnfw_s_xy_sqr(s_xy_sqr)
 
     for pix_y in range(img_height):
         for pix_x in range(img_width):
             gnfw_x = (pix_x - center_pix_x) * arcseconds_per_pixel
             gnfw_y = (pix_y - center_pix_y) * arcseconds_per_pixel
-            pixels[pix_y, pix_x] = get_s_xy_sqr_with_rot(gnfw_x, gnfw_y)
-    return gnfw_s_xy_sqr(pixels)
+            pix_val = f_gnfw_s_xy_sqr_with_rot(gnfw_x, gnfw_y)
+            pixels[pix_y, pix_x] = pix_val
+    return pixels
 
 
 
