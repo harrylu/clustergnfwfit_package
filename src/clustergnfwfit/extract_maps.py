@@ -54,6 +54,209 @@ def enmap_from_healpix_tiles(hp_map, ll_pos, tile_shape, ntile, res, proj='car')
             tile_row = []
     return enmap.tile_maps(tiles)
 
+def extract_act_maps(ndmap_90, beam_handler_90, ndmap_150, beam_handler_150, ndmap_cmb, cmb_beam_Bl, coords, map_radius, res, deconvolution_map_radius, deconvolve_cmb_lmax=2000, verbose=True, even_maps=True):
+    # coords should be in rads
+    coords = np.array(coords)
+    # Need to do some stuff if we want even maps
+    
+    # reproject results in incorrect wcs
+    if even_maps:
+        half_pixel_rad = (res / 2).to(cds.rad).value
+        sfl_90 = reproject.thumbnails(ndmap_90, coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_150 = reproject.thumbnails(ndmap_150, coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_90 = sfl_90[..., 1:, 1:]
+        sfl_150 = sfl_150[..., 1:, 1:]
+    else:
+        sfl_90 = reproject.thumbnails(ndmap_90, coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_150 = reproject.thumbnails(ndmap_150, coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+
+    # incorrect wcs because of reproject
+    ndmaps_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape[-2:]) + beam_handler_90.get_pad_pixels(), ndmap_cmb, cmb_beam_Bl, coords, deconvolution_map_radius, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')
+    # convolve deconvolved cmb with 90 GHz, 150 GHz beams
+    deconvolved_cmb_90 = [beam_handler_90.convolve2d(ndmap) for ndmap in ndmaps_deconvolved_cmb]
+    deconvolved_cmb_150 = [beam_handler_150.convolve2d(ndmap) for ndmap in ndmaps_deconvolved_cmb]
+    
+    sfl_90_cmb_subtracted = sfl_90 - np.array(deconvolved_cmb_90)
+    sfl_150_cmb_subtracted = sfl_150 - np.array(deconvolved_cmb_150)
+
+    # import matplotlib.pyplot as plt
+    # from matplotlib import cm
+    # plt.figure('90')
+    # plt.imshow(sfl_90[0])
+    # plt.figure('90 cmb')
+    # plt.imshow(deconvolved_cmb_90[0])
+    # plt.figure('90 cmb subtracted')
+    # plt.imshow(sfl_90_cmb_subtracted[0])
+
+    # plt.figure('covar')
+    # plt.imshow(np.outer(sfl_90_cmb_subtracted[0].ravel(), sfl_90_cmb_subtracted[0].ravel()))
+
+    # plt.show()
+
+    return sfl_90_cmb_subtracted, sfl_150_cmb_subtracted
+
+def extract_act_maps_single(fpath_dict, dec, ra, map_radius, res=30 * cds.arcsec, deconvolution_map_radius=0.5*cds.deg, deconvolve_cmb_lmax=2000, verbose=True, even_maps=True):
+    # radiuses must be in astropy units
+    # dec in (d, m, s)
+    # ra in (h, m, s)
+    # fpathdict should have keys 'cmb', 
+
+    # deconvolution_map_radius must be larger than map_radius, else cmb map is not large enough to subtract from act
+    assert deconvolution_map_radius > map_radius
+
+    def hms_to_deg(hours, minutes, seconds):
+        return (hours + minutes / 60 + seconds / (60 ** 2)) * 15
+    def dms_to_deg(degrees, minutes, seconds):
+        return degrees + minutes / 60 + seconds / (60 ** 2)
+
+    deg_dec = dms_to_deg(*dec)
+    deg_ra = hms_to_deg(*ra)
+    coords = np.deg2rad(np.array([deg_dec, deg_ra]))
+
+    # I_STOKES_INP is column (field) 5
+    hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
+    # get CMB beam
+    hdul = fits.open(fpath_dict['cmb'])
+    beam_hdu = hdul[2]
+    cmb_beam_Bl = list(beam_hdu.columns['INT_BEAM'].array)
+
+    # diameter of 17 pixels has pixels at < 1% of highest
+    beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], 17)
+    beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], 17)
+
+
+    # a little more to avoid losing data on reproject 
+    box_radius = 1.5 * map_radius
+
+    # Create the box and use it to select a ndmap
+    box = np.deg2rad([[deg_dec - box_radius.to(cds.deg).value, deg_ra - box_radius.to(cds.deg).value], [deg_dec + box_radius.to(cds.deg).value, deg_ra + box_radius.to(cds.deg).value]])
+    
+    # these are in CAR projection and may not be centered on dec, ra
+    ndmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
+    ndmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
+
+    # 1.5 * to avoid losing data on reproject
+    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (deg_dec, deg_ra), 1.5 * deconvolution_map_radius, res, 'car')
+    
+    sfl_90_cmb_subtracted, sfl_150_cmb_subtracted = extract_act_maps(ndmap_90, beam_handler_90, ndmap_150, beam_handler_150, ndmap_cmb, cmb_beam_Bl, coords, map_radius, res, deconvolution_map_radius, deconvolve_cmb_lmax, verbose, even_maps)
+    return sfl_90_cmb_subtracted[0], sfl_150_cmb_subtracted[0], beam_handler_90, beam_handler_150
+
+def extract_act_maps_covar(num_maps, fpath_dict, dec, ra, pick_sample_radius, map_radius, res=30 * cds.arcsec, deconvolution_map_radius=0.5 * cds.deg, deconvolve_cmb_lmax=2000, verbose=True, even_maps=True):
+    # radiuses must be in astropy units
+    # dec in (d, m, s)
+    # ra in (h, m, s)
+    # fpathdict should have keys 'cmb', 
+
+    # deconvolution_map_radius must be larger than map_radius, else cmb map is not large enough to subtract from act
+    assert deconvolution_map_radius > map_radius
+
+    def hms_to_deg(hours, minutes, seconds):
+        return (hours + minutes / 60 + seconds / (60 ** 2)) * 15
+    def dms_to_deg(degrees, minutes, seconds):
+        return degrees + minutes / 60 + seconds / (60 ** 2)
+
+    deg_dec = dms_to_deg(*dec)
+    deg_ra = hms_to_deg(*ra)
+
+    # get sample offsets in decimal degrees
+    sample_coords = (np.random.random((num_maps, 2)) * (2 * pick_sample_radius) - pick_sample_radius).to(cds.rad).value
+    # add dec, ra
+    sample_coords[:, 0] += np.deg2rad(deg_dec)
+    sample_coords[:, 1] += np.deg2rad(deg_ra)
+    
+    # I_STOKES_INP is column (field) 5
+    hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
+    # get CMB beam
+    hdul = fits.open(fpath_dict['cmb'])
+    beam_hdu = hdul[2]
+    cmb_beam_Bl = list(beam_hdu.columns['INT_BEAM'].array)
+
+    # diameter of 17 pixels has pixels at < 1% of highest
+    beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], 17)
+    beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], 17)
+
+
+    # a little more to avoid losing data on reproject 
+    box_radius = (map_radius + pick_sample_radius + 2 * cds.arcmin)
+
+    # Create the box and use it to select a ndmap
+    box = np.deg2rad([[deg_dec - box_radius.to(cds.deg).value, deg_ra - box_radius.to(cds.deg).value], [deg_dec + box_radius.to(cds.deg).value, deg_ra + box_radius.to(cds.deg).value]])
+    
+    # these are in CAR projection and may not be centered on dec, ra
+    ndmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
+    ndmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
+
+    # 1.5 * to avoid losing data on reproject
+    print(f"Enmapping cmb from healpix")
+    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (deg_dec, deg_ra), box_radius, res, 'car')
+    print(f"Enmapped from healpix with shape of {ndmap_cmb.shape}")
+    
+
+    sfl_90_cmb_subtracted, sfl_150_cmb_subtracted = extract_act_maps(ndmap_90, beam_handler_90, ndmap_150, beam_handler_150, ndmap_cmb, cmb_beam_Bl, sample_coords, map_radius, res, deconvolution_map_radius, deconvolve_cmb_lmax, verbose, even_maps)
+    return sfl_90_cmb_subtracted, sfl_150_cmb_subtracted
+
+def extract_bolocam_map(fpath_dict, dec, ra, deconvolution_map_radius=0.5 * cds.deg, deconvolve_cmb_lmax=2000):
+
+    def hms_to_deg(hours, minutes, seconds):
+        return (hours + minutes / 60 + seconds / (60 ** 2)) * 15
+    def dms_to_deg(degrees, minutes, seconds):
+        return degrees + minutes / 60 + seconds / (60 ** 2)
+
+    deg_dec = dms_to_deg(*dec)
+    deg_ra = hms_to_deg(*ra)
+    coords = np.deg2rad([deg_dec, deg_ra])
+
+    #read FITS header
+    header = fits.open(fpath_dict['bolocam_filtered'])[0].header
+
+    # wcs incorrect when read in this way
+    enmap_bolocam_filtered = enmap.read_fits(fpath_dict['bolocam_filtered'])
+    # fix WCS
+    enmap_bolocam_filtered.wcs.wcs.cdelt = [float(header['CD1_1']), float(header['CD2_2'])]
+    print(f'Bolocam WCS: {enmap_bolocam_filtered.wcs}')
+
+    # beam is approx gaussian, fwhm in degrees
+    bolocam_beam_fwhm = header['BMAJ']
+    bolocam_beam_handler = beam_utils.BeamHandlerBolocam(bolocam_beam_fwhm, 11)
+
+    # I_STOKES_INP is column (field) 5
+    hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
+    # get CMB beam
+    hdul = fits.open(fpath_dict['cmb'])
+    beam_hdu = hdul[2]
+    cmb_beam_Bl = list(beam_hdu.columns['INT_BEAM'].array)
+
+    # 20 arcsecond resolution
+    res = 20 * cds.arcsec
+
+    map_radius = 21 * res
+    box_radius = (map_radius + 2 * cds.arcmin)
+    print(f"Enmapping cmb from healpix")
+    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (deg_dec, deg_ra), box_radius, res, 'car')
+    print(f"Enmapped from healpix with shape of {ndmap_cmb.shape}")
+
+    
+    ndmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(enmap_bolocam_filtered.shape) + bolocam_beam_handler.get_pad_pixels(), ndmap_cmb, cmb_beam_Bl, coords, deconvolution_map_radius, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')[0]
+
+    # convolve CMB with Bolocam psf
+    ndmap_deconvolved_cmb = bolocam_beam_handler.convolve2d(ndmap_deconvolved_cmb)
+    
+    # apply hanning
+    hanning = np.outer(np.hanning(42), np.hanning(42))
+    hanning /= np.mean(hanning)
+    ndmap_deconvolved_cmb *= hanning
+
+    # filter cmb
+    transfer_function_hdul = fits.open(fpath_dict['bolocam_transfer'])
+    signal_transfer_function_fft = transfer_function_hdul[0].data + 1j * transfer_function_hdul[1].data
+    ndmap_deconvolved_cmb = np.real(fft.ifft2(fft.fft2(ndmap_deconvolved_cmb) * signal_transfer_function_fft))
+
+    bolocam_map = enmap_bolocam_filtered - ndmap_deconvolved_cmb
+
+    # bolocam_err = fits.open(fpath_dict['bolocam_noise'])[0].data
+    return bolocam_map, bolocam_beam_handler
+
+# old
 def extract_act_maps_for_covar(num_maps, fpath_dict, dec, ra, pick_sample_radius, map_radius, deconvolve_cmb_lmax, verbose, even_maps):
     # radiuses must be in astropy units
     
@@ -91,32 +294,34 @@ def extract_act_maps_for_covar(num_maps, fpath_dict, dec, ra, pick_sample_radius
     enmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
     
     # get sample offsets in decimal degrees
-    sample_coords = (np.random.random((num_maps, 2)) * (2 * pick_sample_radius) - pick_sample_radius).to(cds.deg).value
+    sample_coords = (np.random.random((num_maps, 2)) * (2 * pick_sample_radius) - pick_sample_radius).to(cds.rad).value
     # add dec, ra
-    sample_coords[:, 0] += decimal_dec
-    sample_coords[:, 1] += decimal_ra
+    sample_coords[:, 0] += np.deg2rad(decimal_dec)
+    sample_coords[:, 1] += np.deg2rad(decimal_ra)
+
     
     
     even_maps = True
     # Need to do some stuff if we want even maps
     if even_maps:
-        half_pixel_deg = (res / 2).to(cds.deg).value
-        sfl_90 = reproject.thumbnails(enmap_90, np.deg2rad(sample_coords + half_pixel_deg), r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
-        sfl_150 = reproject.thumbnails(enmap_150, np.deg2rad(sample_coords + half_pixel_deg), r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        half_pixel_rad= (res / 2).to(cds.rad).value
+        sfl_90 = reproject.thumbnails(enmap_90, sample_coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_150 = reproject.thumbnails(enmap_150, sample_coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
         sfl_90 = sfl_90[:, 1:, 1:]
         sfl_150 = sfl_150[:, 1:, 1:]
     else:
-        sfl_90 = reproject.thumbnails(enmap_90, np.deg2rad(sample_coords), r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
-        sfl_150 = reproject.thumbnails(enmap_150, np.deg2rad(sample_coords), r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_90 = reproject.thumbnails(enmap_90, sample_coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        sfl_150 = reproject.thumbnails(enmap_150, sample_coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
 
     # ntiles = 1
     # res = 30 * cds.arcsec
     # tile_shape = np.ceil(2 * box_deg_r / res.to(cds.deg).value / ntiles)
     # tile_shape = (tile_shape, tile_shape)
     # ndmap_cmb = enmap_from_healpix_tiles(hp_map, (decimal_dec - box_deg_r, decimal_ra - box_deg_r), tile_shape, (ntiles, ntiles), res, proj='car')
-    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (decimal_dec, decimal_ra), box_deg_r * cds.deg, res, 'car')
+    cmb_radius = 0.5 * cds.deg
+    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (decimal_dec, decimal_ra), max(box_deg_r * cds.deg, cmb_radius), res, 'car')
     print(f"Enmapped from healpix with shape of {ndmap_cmb.shape}")
-    ndmaps_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape[1:]) + beam_handler_90.get_pad_pixels(), ndmap_cmb, Bl, sample_coords, 0.5 * cds.deg, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')
+    ndmaps_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape[1:]) + beam_handler_90.get_pad_pixels(), ndmap_cmb, Bl, sample_coords, cmb_radius, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')
 
     # convolve deconvolved cmb with 90 GHz, 150 GHz beams
     deconvolved_cmb_90 = [beam_handler_90.convolve2d(ndmap) for ndmap in ndmaps_deconvolved_cmb]
@@ -235,16 +440,39 @@ if __name__ == "__main__":
     map_radius = 10 * cds.arcmin # arcminutes
     R500 = 200  # arcseconds
 
+    map_bolocam = extract_bolocam_map(fpath_dict, dec, ra)
+    plt.figure('bolocam')
+    plt.imshow(map_bolocam, cmap=cm.coolwarm, vmin=-100, vmax=100)
+    
     maps_90, maps_150 = extract_act_maps_for_covar(10, fpath_dict, dec, ra, 20 * cds.deg, map_radius, 2000, True, True)
+    # maps_single_90, maps_single_150 = extract_act_maps_single(fpath_dict, dec, ra, map_radius, 30 * cds.arcsec, 0.5 * cds.deg)
+    maps_single_90, maps_single_150 = extract_act_maps_covar(10, fpath_dict, dec, ra, 20 * cds.deg, map_radius, 30 * cds.arcsec, 0.5 * cds.deg, 2000, True, True)
+    maps_single_90 = maps_single_90[0]
+    maps_single_150 = maps_single_150[0]
+
+    import scipy.ndimage
+    blurred_90 = scipy.ndimage.gaussian_filter(maps_single_90, (2, 2))
+    blurred_150 = scipy.ndimage.gaussian_filter(maps_single_150, (2, 2))
+    plt.figure('single 90')
+    plt.imshow(maps_single_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
+    plt.figure('single 150')
+    plt.imshow(maps_single_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
+    plt.figure('diff 90')
+    plt.imshow(maps_single_90 - maps_90[0])
+    plt.figure('diff 150')
+    plt.imshow(maps_single_150 - maps_150[0])
 
     for i, (m_90, m_150) in enumerate(zip(maps_90, maps_150)):
         plt.figure(i)
         f, axs = plt.subplots(2, 1)
-        axs[0].imshow(m_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
-        axs[1].imshow(m_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
+        import scipy.ndimage
+        blurred_90 = m_90 #scipy.ndimage.gaussian_filter(m_90, (2, 2))
+        blurred_150 = m_150 #scipy.ndimage.gaussian_filter(m_150, (2, 2))
+        axs[0].imshow(blurred_90, cmap=cm.coolwarm, vmin=-100, vmax=100)
+        axs[1].imshow(blurred_150, cmap=cm.coolwarm, vmin=-100, vmax=100)
     plt.show()
 
-
+# old
 def extract_maps(fpath_dict,
                 dec, ra, map_radius,
                 deconvolve_cmb_lmax=2000, include_bolocam=True, verbose=False, even_maps=True):
@@ -294,51 +522,6 @@ def extract_maps(fpath_dict,
     decimal_dec = dms_to_deg(*dec)
     decimal_ra = hms_to_deg(*ra)
     
-
-    # x arcmins = x/60 deg
-    # add some positive 2 arcmin to map_radius so we dont lose data when we reproject
-    deg_r = (map_radius + 2) / 60
-
-    # Create the box and use it to select a submap enmap
-    box = np.deg2rad([[decimal_dec - deg_r, decimal_ra - deg_r], [decimal_dec + deg_r, decimal_ra + deg_r]])
-
-    # resolution is 30 arcseconds, will use later
-    res = 30 * cds.arcsec
-
-    # these are in CAR projection (may not be centered on dec, ra)
-    enmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
-    enmap_90_noise = enmap.read_fits(fpath_dict['noise_90'], box=box)[0]
-    enmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
-    enmap_150_noise = enmap.read_fits(fpath_dict['noise_150'], box=box)[0]
-    
-    radius = map_radius*utils.arcmin
-    even_maps = True
-    # Need to do some stuff if we want even maps
-    if even_maps:
-        half_pixel_deg = res.to(cds.deg).value
-        coords = [np.deg2rad([decimal_dec + half_pixel_deg, decimal_ra + half_pixel_deg])]
-        sfl_90 = reproject.thumbnails(enmap_90, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_150 = reproject.thumbnails(enmap_150, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_90 = sfl_90[1:, 1:]
-        sfl_90_noise = sfl_90_noise[1:, 1:]
-        sfl_150 = sfl_150[1:, 1:]
-        sfl_150_noise = sfl_150_noise[1:, 1:]
-    else:
-        # for odd maps
-        # reproject to sfl thumbnails (definitely centered on dec, ra)
-        coords = [np.deg2rad([decimal_dec, decimal_ra])]
-        sfl_90 = reproject.thumbnails(enmap_90, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_150 = reproject.thumbnails(enmap_150, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, coords, r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
-        print(f"ACTPlanck SFL WCS: {sfl_90.wcs}")
-    
-
-    assert sfl_90.shape[0] == sfl_90.shape[1], f"Sfl 90 axis length mismatch: {sfl_90.shape}"
-    assert sfl_90.shape == sfl_150.shape
-
     # I_STOKES_INP is column (field) 5
     hp_map, header = hp.fitsfunc.read_map(fpath_dict['cmb'], field=5, hdu=1, memmap=True, h=True)
     # extract 1 degree x 1 degree map (slightly larger so that there is center pixel)
@@ -352,8 +535,49 @@ def extract_maps(fpath_dict,
     beam_handler_150 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_150'], 17)
     beam_handler_90 = beam_utils.BeamHandlerACTPol(fpath_dict['beam_90'], 17)
 
-    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (decimal_dec, decimal_ra), cmb_radius_deg, 30 * cds.arcsec, 'car')
-    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape) + beam_handler_90.get_pad_pixels(), ndmap_cmb, Bl, [(decimal_dec, decimal_ra)], cmb_radius_deg, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')
+    # x arcmins = x/60 deg
+    # add some positive 2 arcmin to map_radius so we dont lose data when we reproject
+    deg_r = (map_radius.to(cds.arcmin) + 2 * cds.arcmin).to(cds.deg).value
+
+    # Create the box and use it to select a submap enmap
+    box = np.deg2rad([[decimal_dec - deg_r, decimal_ra - deg_r], [decimal_dec + deg_r, decimal_ra + deg_r]])
+
+    # resolution is 30 arcseconds, will use later
+    res = 30 * cds.arcsec
+
+    # these are in CAR projection (may not be centered on dec, ra)
+    enmap_90 = enmap.read_fits(fpath_dict['brightness_90'], box=box)[0]
+    enmap_90_noise = enmap.read_fits(fpath_dict['noise_90'], box=box)[0]
+    enmap_150 = enmap.read_fits(fpath_dict['brightness_150'], box=box)[0]
+    enmap_150_noise = enmap.read_fits(fpath_dict['noise_150'], box=box)[0]
+    
+    sample_coords = np.array([(decimal_dec, decimal_ra)])
+
+    radius = map_radius.to(cds.arcmin).value*utils.arcmin
+    even_maps = True
+    # Need to do some stuff if we want even maps
+    if even_maps:
+        half_pixel_deg = res.to(cds.deg).value
+        sfl_90 = reproject.thumbnails(enmap_90, np.deg2rad(sample_coords + half_pixel_deg), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, np.deg2rad(sample_coords + half_pixel_deg), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150 = reproject.thumbnails(enmap_150, np.deg2rad(sample_coords + half_pixel_deg), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, np.deg2rad(sample_coords + half_pixel_deg), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90 = sfl_90[1:, 1:]
+        sfl_90_noise = sfl_90_noise[1:, 1:]
+        sfl_150 = sfl_150[1:, 1:]
+        sfl_150_noise = sfl_150_noise[1:, 1:]
+    else:
+        # for odd maps
+        # reproject to sfl thumbnails (definitely centered on dec, ra)
+        sfl_90 = reproject.thumbnails(enmap_90, np.deg2rad(sample_coords), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_90_noise = reproject.thumbnails_ivar(enmap_90_noise, np.deg2rad(sample_coords), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150 = reproject.thumbnails(enmap_150, np.deg2rad(sample_coords), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+        sfl_150_noise = reproject.thumbnails_ivar(enmap_150_noise, np.deg2rad(sample_coords), r=radius, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)[0]
+    
+
+    cmb_radius = 0.5 * cds.deg
+    ndmap_cmb = enmap_from_healpix_in_radius(hp_map, (decimal_dec, decimal_ra), cmb_radius, res, 'car')
+    enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape) + beam_handler_90.get_pad_pixels(), ndmap_cmb, Bl, sample_coords, cmb_radius, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')[0]
 
     # convolve deconvolved cmb with 90 GHz, 150 GHz beams
     deconvolved_cmb_90 = beam_handler_90.convolve2d(enmap_deconvolved_cmb)
@@ -388,7 +612,7 @@ def extract_maps(fpath_dict,
         bolocam_beam_handler = beam_utils.BeamHandlerBolocam(bolocam_beam_fwhm, 11)
 
         # 20 arcsecond resolution
-        enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(enmap_bolocam_filtered.shape) + bolocam_beam_handler.get_pad_pixels(), ndmap_cmb, Bl, decimal_dec, decimal_ra, cmb_radius_deg, res=20 * cds.arcsec, lmax=deconvolve_cmb_lmax, proj='sfl')
+        enmap_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(enmap_bolocam_filtered.shape) + bolocam_beam_handler.get_pad_pixels(), ndmap_cmb, Bl, decimal_dec, decimal_ra, cmb_radius, res=20 * cds.arcsec, lmax=deconvolve_cmb_lmax, proj='sfl')[0]
         assert enmap_deconvolved_cmb.shape[0] % 2 == 0
         assert enmap_deconvolved_cmb.shape[0] == enmap_deconvolved_cmb.shape[1]
 

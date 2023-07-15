@@ -9,12 +9,12 @@ import deconvolution
 
 # specified 
 def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lmax, proj):
-    """Extracts deconvolved CMB map with center pixel at specifed dec, ra. 
+    """Extracts deconvolved CMB maps with center pixel at specifed dec, ra. 
 
     Args:
         ndmap_cmb (map): ndmap of cmb, must include specified region
         beam_Bl (list of float): [Bl(l=0), Bl(l=1),.... Bl(l=lmax)]
-        coords: list of tuples (dec, ra) in degs
+        coords: list of tuples (dec, ra) in rads
         decimal_dec (float): Declination in decimal degrees
         decimal_ra (float): Right ascension in decimal degrees
         cmb_radius_deg (float): CMB map radius in decimal degrees. Must be so that the resulting map is odd.
@@ -26,7 +26,7 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
         Exception: Resulting map will have odd shape
 
     Returns:
-        Pixell ndmap: Deconvolved CMB map.
+        List of Pixell ndmaps: Deconvolved CMB map.
     """
     '''
     # reproject from healpix to CAR
@@ -41,7 +41,9 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
     '''
     
     # specified a proj, reproject to that coordinate system
-    coords = np.deg2rad(np.array(coords))
+    coords = np.array(coords)
+    if len(coords.shape) == 1:
+        coords = coords[np.newaxis]
 
     shape = int(cmb_radius_deg.to(cds.degree).value / res.to(cds.degree).value) * 2
     print(f'Reprojecting CMB to {proj}')
@@ -60,7 +62,6 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
     cmb_beam_map = cmb_beam_handler.beam_map
     # normalize peak of beam
     cmb_beam_map /= cmb_beam_map[cmb_beam_map.shape[0]//2, cmb_beam_map.shape[1]//2]
-
 
     fft_ndmap_cmb = fftpack.fftshift(np.array([enmap.fft(m) for m in list(ndmap_cmb)]), axes=(1, 2))
     fft_beam_cmb = fftpack.fftshift(np.abs(enmap.fft(cmb_beam_map)))
@@ -110,8 +111,8 @@ def get_deconvolved_map_even(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lm
     # RA and DEC are increasing left and up
 
     # res in arcminutes
-    half_res_deg = (res / 2).to(cds.deg).value
-    ndmaps = deconvolution.get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords + half_res_deg, cmb_radius_deg, res=res, lmax=lmax, proj=proj)
+    half_res_rad = (res / 2).to(cds.rad).value
+    ndmaps = deconvolution.get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords + half_res_rad, cmb_radius_deg, res=res, lmax=lmax, proj=proj)
     
     floor_shape = ndmaps[0].shape[-1] // 2
     center_pix = (ndmaps[0].shape[-1] - 1) / 2
