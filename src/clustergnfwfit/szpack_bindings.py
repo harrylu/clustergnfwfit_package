@@ -1,8 +1,11 @@
 # to make shared library (libSZpack.so)
 # https://stackoverflow.com/questions/655163/convert-a-static-library-to-a-shared-library
 
-# insert at line 87
-# g++ -shared -o ./libSZpack.so $? $(LIBS)
+# -flto makes faster
+# https://stackoverflow.com/questions/29972192/how-does-gccs-linktime-optimisation-flto-flag-work
+
+# insert at line 87 of Makefile.in
+# g++ -shared -flto -fPIC -o ./libSZpack.so $? $(LIBS)
 
 # problem with name mangling when calling functions:
 # https://stackoverflow.com/questions/30983220/ctypes-error-attributeerror-symbol-not-found-os-x-10-7-5

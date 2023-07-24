@@ -4,6 +4,8 @@ from pixell import enmap, reproject, utils
 from astropy.io import fits
 from astropy.units import cds
 
+import gc
+
 import beam_utils
 import deconvolution
 
@@ -63,11 +65,18 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
     # normalize peak of beam
     cmb_beam_map /= cmb_beam_map[cmb_beam_map.shape[0]//2, cmb_beam_map.shape[1]//2]
 
-    fft_ndmap_cmb = fftpack.fftshift(np.array([enmap.fft(m) for m in list(ndmap_cmb)]), axes=(1, 2))
-    fft_beam_cmb = fftpack.fftshift(np.abs(enmap.fft(cmb_beam_map)))
+    print('fftshift')
+    # changed from fftpack to np fft
+    fft_ndmap_cmb = np.fft.fftshift(np.array([enmap.fft(m) for m in list(ndmap_cmb)]), axes=(1, 2))
+    del ndmap_cmb
+    gc.collect()
+    fft_beam_cmb = np.fft.fftshift(np.abs(enmap.fft(cmb_beam_map)))
 
-
+    print('deconvolving through division')
     fft_deconvolved_cmb = fft_ndmap_cmb / fft_beam_cmb[np.newaxis, :, :]
+    del fft_ndmap_cmb
+    del fft_beam_cmb
+    gc.collect()
     # np.divide(fft_ndmap_cmb, fft_beam_cmb)
 
     # resolution in radians
@@ -77,13 +86,19 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
     x_freq = np.tile(np.fft.fftfreq(fft_deconvolved_cmb.shape[2], rad_res), (fft_deconvolved_cmb.shape[1], 1))
 
     # 2pi * freq to convert from k to l
-    l_dist = fftpack.fftshift(np.sqrt(np.square(2*np.pi*y_freq) + np.square(2*np.pi*x_freq)))
+    l_dist = np.fft.fftshift(np.sqrt(np.square(2*np.pi*y_freq) + np.square(2*np.pi*x_freq)))
 
     # mask out l > lmax
     fft_deconvolved_cmb[:, l_dist > lmax] = 0
 
     # enmap_deconvolved_cmb = enmap.ndmap(np.real(enmap.ifft(fftpack.ifftshift(fft_deconvolved_cmb))), cmb_wcs)
-    ndmaps = [enmap.ndmap(np.real(enmap.ifft(fftpack.ifftshift(deconvolved_map_fft))), owcs) for deconvolved_map_fft in list(fft_deconvolved_cmb)]
+    print('converting to ndmaps')
+    ndmaps = []
+    for deconvolved_map_fft in fft_deconvolved_cmb:
+        ndmaps.append(enmap.ndmap(np.real(enmap.ifft(np.fft.ifftshift(deconvolved_map_fft))), owcs))
+        del deconvolved_map_fft
+    gc.collect()
+    # ndmaps = [enmap.ndmap(np.real(enmap.ifft(fftpack.ifftshift(deconvolved_map_fft))), owcs) for deconvolved_map_fft in list(fft_deconvolved_cmb)]
 
     return ndmaps
 

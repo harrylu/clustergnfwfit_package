@@ -42,12 +42,14 @@ if __name__ == "__main__":
       'bolocam_transfer': os.path.join(BOLOCAM_DIR, FNAME_TRANSFER),
   }
 
-  # these fields will vary depending on the cluster
-  dec = [-12, -22, -45]  # in degrees, minutes, seconds
-  ra = [0, 25, 29.9]     # in hours, minutes, seconds
-  map_radius = 12.5  # arcminutes
-  sfl_90, sfl_150, err_90, err_150, beam_handler_90, beam_handler_150, bolocam_map, bolocam_map_err, beam_handler_bolocam = extract_maps(fpath_dict,
-              dec, ra, map_radius)
+  import run
+  import extract_maps
+  from astropy.units import cds
+  fpath = os.path.join(os.getcwd(), "run_inputs", "MACSJ0025.4.txt")
+  inputs = run.parse_input(fpath)
+  sfl_90, sfl_150, beam_handler_90, beam_handler_150 = extract_maps.extract_act_maps_single(inputs, inputs['dec'], inputs['ra'], inputs['map_radius'], 30 * cds.arcsec, inputs['deconvolution_map_radius'], inputs['deconvolve_cmb_lmax'], verbose=True, even_maps=True)
+  bolocam_map, beam_handler_bolocam = extract_maps.extract_bolocam_map(inputs, inputs['dec'], inputs['ra'], inputs['deconvolution_map_radius'], inputs['deconvolve_cmb_lmax'])
+
   print(f"ACT map size: {sfl_90.shape}")
 
   R500 = 200

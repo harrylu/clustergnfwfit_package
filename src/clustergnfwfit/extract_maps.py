@@ -7,6 +7,8 @@ from astropy.modeling.functional_models import Gaussian2D
 from astropy.units import cds
 cds.enable()
 
+import gc
+
 import beam_utils
 import deconvolution
 
@@ -63,15 +65,19 @@ def extract_act_maps(ndmap_90, beam_handler_90, ndmap_150, beam_handler_150, ndm
     if even_maps:
         half_pixel_rad = (res / 2).to(cds.rad).value
         sfl_90 = reproject.thumbnails(ndmap_90, coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        gc.collect()
         sfl_150 = reproject.thumbnails(ndmap_150, coords + half_pixel_rad, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        gc.collect()
         sfl_90 = sfl_90[..., 1:, 1:]
         sfl_150 = sfl_150[..., 1:, 1:]
     else:
         sfl_90 = reproject.thumbnails(ndmap_90, coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
+        gc.collect()
         sfl_150 = reproject.thumbnails(ndmap_150, coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
-
+    gc.collect()
     # incorrect wcs because of reproject
     ndmaps_deconvolved_cmb = deconvolution.get_deconvolved_map(np.array(sfl_90.shape[-2:]) + beam_handler_90.get_pad_pixels(), ndmap_cmb, cmb_beam_Bl, coords, deconvolution_map_radius, res=res, lmax=deconvolve_cmb_lmax, proj='sfl')
+    gc.collect()
     # convolve deconvolved cmb with 90 GHz, 150 GHz beams
     deconvolved_cmb_90 = [beam_handler_90.convolve2d(ndmap) for ndmap in ndmaps_deconvolved_cmb]
     deconvolved_cmb_150 = [beam_handler_150.convolve2d(ndmap) for ndmap in ndmaps_deconvolved_cmb]

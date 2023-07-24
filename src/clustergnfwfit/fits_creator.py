@@ -1,8 +1,8 @@
-from astropy.io import fits
+from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
-from datetime import datetime
+from astropy.io import fits
 
 # ref_ra, ref_dec in degrees
 def make_fits(fpath, ref_ra, ref_dec, data, di_90, sigma_90, di_150, sigma_150):
@@ -89,12 +89,3 @@ def make_fits(fpath, ref_ra, ref_dec, data, di_90, sigma_90, di_150, sigma_150):
     primary = fits.PrimaryHDU(data=data, header=hdr)
     hdul = fits.HDUList([primary])
     hdul.writeto(fpath, overwrite=True)
-
-if __name__ == "__main__":
-    pass
-
-
-
-        
-
-    

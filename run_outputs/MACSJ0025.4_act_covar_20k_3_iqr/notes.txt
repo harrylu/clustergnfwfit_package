@@ -1,0 +1,1 @@
+Done with 20k samples ACT covar, diag of bolocam

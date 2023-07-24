@@ -4,6 +4,8 @@ import corner
 import matplotlib.pyplot as plt
 
 filename = 'emcee_backend_2nd_fit_6k_5k.h5'
+filename = 'emcee_backend_6k_w_bolocam.h5'
+
 reader = emcee.backends.HDFBackend(filename)
 ndim = 32
 
@@ -11,8 +13,9 @@ try:
     tau = reader.get_autocorr_time()
 except Exception as e:
     print(e)
-burnin = 2000#int(2 * np.max(tau))
-thin = 250#int(0.5 * np.min(tau))
+    tau = reader.get_autocorr_time(tol=0)
+burnin = int(2 * np.max(tau))
+thin = int(0.5 * np.min(tau))
 samples = reader.get_chain(discard=burnin, flat=True, thin=thin)
 #samples[:, [1, 2]] = np.log10(-samples[:, [1, 2]])
 # good_index = np.ndarray.flatten(np.argwhere(samples[:, 1] > -30))
@@ -36,8 +39,8 @@ all_samples = np.concatenate(
     (samples, log_prob_samples[:, None], log_prior_samples[:, None]), axis=1
 )
 
-# pnames = ['theta', 'cbrt_p0_90', 'cbrt_p0_150', 'r_x', 'r_y', 'offset_x', 'offset_y', 'c_90', 'c_150', 'cbrt_p0_bolocam', 'c_bolocam']
-pnames = ['cbrt_p0_90', 'cbrt_p0_150', 'cbrt_p0_bolocam', 'c_90', 'c_150', 'c_bolocam']
+pnames = ['theta', 'cbrt_p0_90', 'cbrt_p0_150', 'r_x', 'r_y', 'offset_x', 'offset_y', 'c_90', 'c_150', 'cbrt_p0_bolocam', 'c_bolocam']
+# pnames = ['cbrt_p0_90', 'cbrt_p0_150', 'cbrt_p0_bolocam', 'c_90', 'c_150', 'c_bolocam']
 labels = list(pnames)
 labels += ["log prob", "log prior"]
 

@@ -1,0 +1,48 @@
+MACSJ0025.4_test_full
+
+MACSJ0025.4
+
+0 25 29.9
+-12 -22 -45
+
+//Redshift, X-ray
+/home/harry/clustergnfwfit_package/data/Bolocam_Xray_parameters.txt
+/home/harry/clustergnfwfit_package/data/Szemasses_SP_2500
+macsj0025.4
+
+// for Mantz paths
+data/planck/
+standard_cosmology
+macs0025.4-1222
+
+// SZpack .so file
+src/clustergnfwfit/SZpack.v1.1.1/libSZpack.so
+
+// .sav files
+data/idl_savs/trans_1.5mm.sav
+data/idl_savs/2mm_spectra.sav
+data/idl_savs/coadd_clean_lissajous_skysub_250mHz_psdfit_nosig.sav
+
+/home/harry/clustergnfwfit_package/data/map_fits_files/act_planck_dr5.01_s08s18_AA_f090_night_map_srcfree.fits
+/home/harry/clustergnfwfit_package/data/map_fits_files/act_planck_dr5.01_s08s18_AA_f090_night_fullivar.fits
+/home/harry/clustergnfwfit_package/data/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f090_night_beam.txt
+/home/harry/clustergnfwfit_package/data/map_fits_files/act_planck_dr5.01_s08s18_AA_f150_night_map_srcfree.fits
+/home/harry/clustergnfwfit_package/data/map_fits_files/act_planck_dr5.01_s08s18_AA_f150_night_fullivar.fits
+/home/harry/clustergnfwfit_package/data/act_dr5.01_auxilliary/beams/act_planck_dr5.01_s08s18_f150_night_beam.txt
+/home/harry/clustergnfwfit_package/data/act_dr5.01_auxilliary/act_planck_dr5.01_s08s18_bandpasses.txt
+/home/harry/clustergnfwfit_package/data/map_fits_files/COM_CMB_IQU-commander_2048_R3.00_full.fits
+/home/harry/clustergnfwfit_package/data/MACS_J0025.4-1222/filtered_image.fits
+/home/harry/clustergnfwfit_package/data/MACS_J0025.4-1222/filtered_image_noise_realizations.fits
+/home/harry/clustergnfwfit_package/data/MACS_J0025.4-1222/filtered_image_signal_transfer_function.fits
+
+// map radius in arcmin
+10
+
+// covariance matrices
+20000
+2000
+10
+
+// deconvolution
+0.5
+2000

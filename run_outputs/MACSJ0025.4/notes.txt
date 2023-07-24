@@ -1,0 +1,2 @@
+Done with diag of empirical estimates of covariance matrices rejecting > 4 iqr?
+ACT has 2k samples?

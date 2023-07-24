@@ -112,7 +112,7 @@ def interp_gnfw_s_xy_sqr(p0, r_x, r_y, r_z, R500, num_samples=100, epsabs=1.49e-
             scipy.integrate.quad(lambda z: f_gnfw_s_xy_sqr_ellipsoid(s_xy_sqr, z, r_z, p0), 0, upper_z_bound, epsabs=epsabs, epsrel=epsrel)[0] * 2
             )
     # interp = scipy.interpolate.interp1d(s_xy_sqr_samples, evaluated_gnfw, kind='linear', fill_value=0, bounds_error=False, assume_sorted=True)
-    interp = lambda x: np.interp(x, s_xy_sqr_samples, evaluated_gnfw)
+    interp = lambda x: np.interp(x, s_xy_sqr_samples, evaluated_gnfw, right=0)
     return interp
 
 # ONLY FOR TESTING PURPOSES; TOO SLOW OTHERWISE

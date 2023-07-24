@@ -84,7 +84,7 @@ run_SZpack:  $(OBJS) run_SZpack.o
 
 SZpacklib: $(OBJS)
 	   @echo "\n Creating SZpack library\n"
-	   g++ -shared -fPIC -o ./libSZpack.so $? $(LIBS)
+	   g++ -shared -flto -fPIC -o ./libSZpack.so $? $(LIBS)
 	   ar rvs ./libSZpack.a $?
 	     
 #===============================================================================
