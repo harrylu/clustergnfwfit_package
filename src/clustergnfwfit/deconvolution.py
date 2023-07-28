@@ -49,8 +49,10 @@ def get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lma
 
     shape = int(cmb_radius_deg.to(cds.degree).value / res.to(cds.degree).value) * 2
     print(f'Reprojecting CMB to {proj}')
+    # oshape, owcs may not do anything
     oshape = (shape, shape)
     oshape, owcs = enmap.thumbnail_geometry(shape=oshape, res=res.to(cds.arcmin).value * utils.arcmin, proj=proj)
+    # r must be larger than area that would be covered by oshape or cuts off data
     ndmap_cmb = reproject.thumbnails(ndmap_cmb, coords, r=cmb_radius_deg.to(cds.deg).value*utils.degree, oshape=oshape, owcs=owcs, res=res.to(cds.arcmin).value*utils.arcmin, proj=proj, verbose=True)
     print(f"Reprojected oshape: {ndmap_cmb.shape}")
         
@@ -129,11 +131,11 @@ def get_deconvolved_map_even(ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lm
     half_res_rad = (res / 2).to(cds.rad).value
     ndmaps = deconvolution.get_deconvolved_map_odd(ndmap_cmb, beam_Bl, coords + half_res_rad, cmb_radius_deg, res=res, lmax=lmax, proj=proj)
     
-    floor_shape = ndmaps[0].shape[-1] // 2
-    center_pix = (ndmaps[0].shape[-1] - 1) / 2
+    # floor_shape = ndmaps[0].shape[-1] // 2
+    # center_pix = (ndmaps[0].shape[-1] - 1) / 2
 
     for i, m in enumerate(ndmaps):
-        ndmaps[i] = m[int(center_pix - (floor_shape - 1)): int(center_pix + (floor_shape + 1)), int(center_pix - (floor_shape - 1)): int(center_pix + (floor_shape + 1))]
+        ndmaps[i] = m[:-1, 1:]
     return ndmaps
 
 def get_deconvolved_map(oshape, ndmap_cmb, beam_Bl, coords, cmb_radius_deg, res, lmax, proj):
