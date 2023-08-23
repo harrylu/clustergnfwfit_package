@@ -225,6 +225,57 @@ def get_covar_act(num_pairs, batch_size, fpath_dict,
 
     # return (1/(realizations_90.shape[-1] - 1)) * outer_sum_90, (1/(realizations_150.shape[-1] - 1)) * outer_sum_150
 
+def get_covar_milca(num_pairs, batch_size, fpath_dict,
+                dec, ra, pick_sample_radius, map_radius,
+                verbose=True, even_maps=True):
+    
+    # batches stores tuples (covariance matrix of batch (biased), number maps in batch)
+    total_realizations = 0
+
+    covar_milca = None
+    covar_realizations = 0
+    
+    while total_realizations < num_pairs:
+        realizations_milca = []
+        
+        sfl_milca = extract_maps.extract_milca_maps_covar(batch_size, fpath_dict, dec, ra, pick_sample_radius, map_radius, 10/3 * cds.arcmin)
+        print(f"Current # realizations: {total_realizations}")
+
+        for map_milca in sfl_milca:
+            
+            blurred_milca = scipy.ndimage.gaussian_filter(map_milca, (2, 2))
+
+            iqr_milca = scipy.stats.iqr(blurred_milca)
+            mean_milca = np.mean(blurred_milca)
+            if (np.max(blurred_milca) - mean_milca) / iqr_milca > 3 or (mean_milca - np.min(blurred_milca)) / iqr_milca > 3:
+                print("Rejected")
+                continue
+
+            print("Accepted")
+            realizations_milca.append(map_milca.flatten())
+            del map_milca
+
+            total_realizations += 1
+            if total_realizations >= num_pairs:
+                break
+        
+        del sfl_milca
+        gc.collect()
+
+        batch_covar_milca = np.cov(np.vstack(realizations_milca, dtype=np.double), rowvar=False, bias=True)
+        if covar_milca is None:
+            covar_milca = batch_covar_milca
+        else:
+            covar_milca = (covar_milca * covar_realizations + batch_covar_milca * len(realizations_milca)) / total_realizations
+        del batch_covar_milca
+        del realizations_milca
+        gc.collect()
+
+        covar_realizations = total_realizations
+
+        continue
+
+    return covar_milca
 
 
 

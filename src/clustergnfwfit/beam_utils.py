@@ -189,18 +189,36 @@ class BeamHandlerPlanckCMB(BeamHandler):
         beam_map = BeamHandler.gen_beam_map(beam_map_width, self.beam_spline_tck)
         super().__init__(beam_map)
 
-class BeamHandlerBolocam(BeamHandler):
-    def __init__(self, fwhm, beam_map_width):
-        """BeamHandler for Bolocam (Gaussian beam)
+# class BeamHandlerBolocam(BeamHandler):
+#     def __init__(self, fwhm, beam_map_width):
+#         """BeamHandler for Bolocam (Gaussian beam)
 
+#         Args:
+#             fwhm (float): Full Width of Half Maximum for Gaussian beam in degrees.
+#             beam_map_width (int): Map width in pixels (must be odd)
+#         """
+#         bolocam_beam_sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+#         y, x = np.mgrid[:beam_map_width, :beam_map_width]
+#         x_mean = beam_map_width // 2
+#         y_mean = beam_map_width // 2
+#         bolocam_beam_sigma_pixels = bolocam_beam_sigma * 3600 / 20
+#         beam_map = Gaussian2D.evaluate(x, y, 1, x_mean, y_mean, bolocam_beam_sigma_pixels, bolocam_beam_sigma_pixels, 0)
+#         super().__init__(beam_map)
+
+class BeamHandlerGaussian(BeamHandler):
+    def __init__(self, fwhm, pixel_size, beam_map_width):
+        """BeamHandler for a Gaussian beam
+        
         Args:
             fwhm (float): Full Width of Half Maximum for Gaussian beam in degrees.
+            pixel_size (float): pixel size in arcseconds.
             beam_map_width (int): Map width in pixels (must be odd)
         """
-        bolocam_beam_sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        beam_sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
+        # convert degrees to arcseconds to pixels
+        beam_sigma_pixels = beam_sigma * 3600 / pixel_size
         y, x = np.mgrid[:beam_map_width, :beam_map_width]
         x_mean = beam_map_width // 2
         y_mean = beam_map_width // 2
-        bolocam_beam_sigma_pixels = bolocam_beam_sigma * 3600 / 20
-        beam_map = Gaussian2D.evaluate(x, y, 1, x_mean, y_mean, bolocam_beam_sigma_pixels, bolocam_beam_sigma_pixels, 0)
+        beam_map = Gaussian2D.evaluate(x, y, 1, x_mean, y_mean, beam_sigma_pixels, beam_sigma_pixels, 0)
         super().__init__(beam_map)

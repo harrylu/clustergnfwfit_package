@@ -4,7 +4,10 @@ from mpfit import mpfit
 import ellipsoid_model as ellipsoid_model
 
 # Fix code later, make less messy
-def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None, err90=None, beam_handler_150=None, beam_handler_90=None, bolocam_map=None, bolocam_err=None, beam_handler_bolocam=None, use_act=None, use_bolocam=None):
+def myfunctgnfw_simul(p, fjac=None, R500=None, data_150=None, data_90=None, err_150=None, err_90=None, beam_handler_150=None,
+                      beam_handler_90=None, data_bolocam=None, err_bolocam=None, beam_handler_bolocam=None,
+                      data_milca=None, err_milca=None, beam_handler_milca=None,
+                      use_act=None, use_bolocam=None, use_milca=None):
     """Function to be minimized. Returns weighted deviations between model and data.
 
     Args:
@@ -30,66 +33,148 @@ def myfunctgnfw_simul(p, fjac=None, R500=None, y150=None, y90=None, err150=None,
     # computed.  It will always be None if MPFIT is called with default
     # flag.
 
-    theta, r_x, r_y, r_z, x_offset, y_offset = p[:6]
+    theta, r_x, r_y, r_z, offset_x, offset_y = p[:6]
     p = p[6:]
 
     if use_act:
-        P0_150, P0_90, c_150, c_90 = p[:4]
+        p0_150, p0_90, c_150, c_90 = p[:4]
         p = p[4:]
     
     if use_bolocam: 
-        P0_bolocam, c_bolocam = p[:2]
+        p0_bolocam, c_bolocam = p[:2]
+        p = p[2:]
+    
+    if use_milca:
+        p0_milca = p[0]
 
     gnfw_s_xy_sqr = ellipsoid_model.interp_gnfw_s_xy_sqr(1, r_x, r_y, r_z, R500)
 
+    if (use_act is False or data_90 is None or data_90.shape[0] % 2 == 0) and (use_act is False or data_bolocam is None or data_bolocam.shape[0] % 2 == 0) and (use_milca is False or data_milca is None or data_milca.shape[0] % 2 == 0):
+        # can use even shape of both act and bolocam data to eval the model map only once, then rebin -> speed up
+        # evaluate the bigger map
+
+        # act and bolocam are rebinned, then convolved
+        # milca is convolved without padding (so also without cutting off padding), then rebinned
+        map_size = 0
+        if use_act:
+            act_map_size = (data_90.shape[0] + beam_handler_90.get_pad_pixels())*3
+            map_size = max(map_size, act_map_size)
+        if use_bolocam:
+            bolocam_map_size = (data_bolocam.shape[0] + beam_handler_bolocam.get_pad_pixels())*2
+            map_size = max(map_size, bolocam_map_size)
+        if use_milca:
+            milca_map_size = (data_milca.shape[0]) * 20
+            map_size = max(map_size, milca_map_size)
+        model_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, offset_x, offset_y,
+                                                                        map_size, map_size)
+        
+        if use_act:
+            act_crop_amount = (map_size - act_map_size) / 2
+            assert int(act_crop_amount) == act_crop_amount
+            act_crop_amount = int(act_crop_amount)
+            if act_crop_amount > 0:
+                model_act_no_c = model_no_c[act_crop_amount:-act_crop_amount, act_crop_amount:-act_crop_amount]
+            else:
+                model_act_no_c = model_no_c
+            model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
+
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
+
+            model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
+            model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
+
+        if use_bolocam:
+            bolo_crop_amount = (map_size - bolocam_map_size) / 2
+            assert int(bolo_crop_amount) == bolo_crop_amount
+            bolo_crop_amount = int(bolo_crop_amount)
+            if bolo_crop_amount > 0:
+                model_bolo_no_c = model_no_c[bolo_crop_amount:-bolo_crop_amount, bolo_crop_amount:-bolo_crop_amount]
+            else:
+                model_bolo_no_c = model_no_c
+            model_bolo_no_c = ellipsoid_model.rebin_2d(model_bolo_no_c, (2, 2))
+
+            model_bolo_no_c = model_bolo_no_c * p0_bolocam
+
+            model_bolocam = beam_handler_bolocam.convolve2d(model_bolo_no_c + c_bolocam, cut_padding=True)
+
+        if use_milca:
+            milca_crop_amount = (map_size - milca_map_size) / 2
+            assert int(milca_crop_amount) == milca_crop_amount
+            milca_crop_amount = int(milca_crop_amount)
+            if milca_crop_amount > 0:
+                model_milca_no_c = model_no_c[milca_crop_amount:-milca_crop_amount, milca_crop_amount:-milca_crop_amount]
+            else:
+                model_milca_no_c = model_no_c
+            model_milca = beam_handler_milca.convolve2d(model_milca_no_c, cut_padding=False)
+            model_milca = ellipsoid_model.rebin_2d(model_milca, (20, 20))
+
+            model_milca = model_milca * p0_milca
+
+    else:
+        if use_act:
+            psf_padding_act = beam_handler_150.get_pad_pixels()
+            # can use this to make the 90 model beause only P0 is different
+            model_act_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, offset_x, offset_y,
+                                (data_90.shape[0] + psf_padding_act)*3, (data_90.shape[1] + psf_padding_act)*3)
+            # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
+            model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
+
+            model_90_no_c = model_act_no_c * p0_90
+            model_150_no_c = model_act_no_c * p0_150
+
+            model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
+            model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
+
+        if use_bolocam:
+            psf_padding_bolocam = beam_handler_bolocam.get_pad_pixels()
+            # eval bolocam at 5 arcsecond res, rebin to 20
+            model_bolo_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, offset_x, offset_y,
+                                                                            (data_bolocam.shape[0] + psf_padding_bolocam)*2, (data_bolocam.shape[1] + psf_padding_bolocam)*2)
+            # evaluated at 10 arcsecond resolution, rebin to 20 arcsecond pixels
+            model_bolo_no_c = ellipsoid_model.rebin_2d(model_bolo_no_c, (2, 2))
+
+            model_bolo_no_c = model_bolo_no_c * p0_bolocam
+
+            model_bolocam = beam_handler_bolocam.convolve2d(model_bolo_no_c + c_bolocam, cut_padding=True)
+
+        if use_milca:
+            model_milca_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, offset_x, offset_y,
+                                                                            (data_milca.shape[0])*20, (data_milca.shape[1])*20)
+            model_milca = beam_handler_milca.convolve2d(model_milca_no_c, cut_padding=False)
+            model_milca = ellipsoid_model.rebin_2d(model_milca, (20, 20))
+
+            model_milca = model_milca * p0_milca
+
+
     if use_act:
-        psf_padding_act = beam_handler_150.get_pad_pixels()
-        # can use this to make the 90 model beause only P0 is different
-        model_act_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, x_offset, y_offset,
-                            (y90.shape[0] + psf_padding_act)*3, (y90.shape[1] + psf_padding_act)*3)
-        # evaluated at 10 arcsecond resolution, rebin to 30 arcsecond pixels
-        model_act_no_c = ellipsoid_model.rebin_2d(model_act_no_c, (3, 3))
-
-        model_150_no_c = model_act_no_c * P0_150
-        model_90_no_c = model_act_no_c * P0_90
-
-        model_150 = beam_handler_150.convolve2d(model_150_no_c + c_150, cut_padding=True)
-        model_90 = beam_handler_90.convolve2d(model_90_no_c + c_90, cut_padding=True)
-
-    if use_bolocam:
-        psf_padding_bolocam = beam_handler_bolocam.get_pad_pixels()
-        # eval bolocam at 5 arcsecond res, rebin to 20
-        model_bolo_no_c = ellipsoid_model.eval_pixel_centers_use_interp(gnfw_s_xy_sqr, theta, r_x, r_y, 10, x_offset, y_offset,
-                                                                        (bolocam_map.shape[0] + psf_padding_bolocam)*2, (bolocam_map.shape[1] + psf_padding_bolocam)*2)
-        model_bolo_no_c = ellipsoid_model.rebin_2d(model_bolo_no_c, (2, 2))
-        # use 150 to make bolocam model because only P0 is different
-        model_bolo_no_c = model_bolo_no_c * P0_bolocam
-
-        model_bolocam = beam_handler_bolocam.convolve2d(model_bolo_no_c + c_bolocam, cut_padding=True)
-
-
-    if use_act:
-        deviation_150 = (y150.flatten() - model_150.flatten()) / err150.flatten()
-        deviation_90 = (y90.flatten() - model_90.flatten()) / err90.flatten()
+        deviation_150 = (data_150.flatten() - model_150.flatten()) / err_150.flatten()
+        deviation_90 = (data_90.flatten() - model_90.flatten()) / err_90.flatten()
     else:
         deviation_90 = np.array([])
         deviation_150 = np.array([])
 
     if use_bolocam:
-        deviation_bolocam = (bolocam_map.flatten() - model_bolocam.flatten()) / bolocam_err.flatten()
+        deviation_bolocam = (data_bolocam.flatten() - model_bolocam.flatten()) / err_bolocam.flatten()
     else:
         deviation_bolocam = np.array([])
+
+    if use_milca:
+        deviation_milca = (data_milca.flatten() - model_milca.flatten()) / err_milca.flatten()
+    else:
+        deviation_milca = np.array([])
 
     # Non-negative status value means MPFIT should continue, negative means
     # stop the calculation.
     status = 0
     # print('model', model)
     # print('y', y)
-    return [status, np.concatenate((deviation_150, deviation_90, deviation_bolocam))]
+    return [status, np.concatenate((deviation_150, deviation_90, deviation_bolocam, deviation_milca))]
 
 
-def mpfit_ellipsoidal_simultaneous(parinfo, R500, beam_handler_150=None, beam_handler_90=None, y150=None, y90=None, err150=None, err90=None,
-                                   bolocam_map=None, bolocam_err=None, beam_handler_bolocam=None, use_act=True, use_bolocam=True):
+def mpfit_ellipsoidal_simultaneous(parinfo, R500, beam_handler_150=None, beam_handler_90=None, data_150=None, data_90=None, err_150=None, err_90=None,
+                                   data_bolocam=None, err_bolocam=None, beam_handler_bolocam=None, data_milca=None, err_milca=None, beam_handler_milca=None,
+                                   use_act=True, use_bolocam=True, use_milca=True):
     """Uses mpfit to simultaneously fit 2 maps to one gNFW model that only differs with different P0s and cs for each.
 
     Args:
@@ -113,23 +198,11 @@ def mpfit_ellipsoidal_simultaneous(parinfo, R500, beam_handler_150=None, beam_ha
         .status
     """
     
-    fa = {'R500': R500, 'y150': y150, 'y90': y90, 'err150': err150, 'err90': err90,
+    fa = {'R500': R500, 'data_150': data_150, 'data_90': data_90, 'err_150': err_150, 'err_90': err_90,
           'beam_handler_150': beam_handler_150, 'beam_handler_90': beam_handler_90,
-          'bolocam_map': bolocam_map, 'bolocam_err': bolocam_err, 'beam_handler_bolocam': beam_handler_bolocam,
-          'use_act': use_act, 'use_bolocam': use_bolocam}
-    
-    if not use_act:
-        print('No ACT data')
-        del parinfo['P0_150']
-        del parinfo['P0_90']
-        del parinfo['c_150']
-        del parinfo['c_90']
-    
-    if not use_bolocam:
-        print('No Bolocam data')
-        del parinfo['P0_bolocam']
-        del parinfo['c_bolocam']
-    
+          'data_bolocam': data_bolocam, 'err_bolocam': err_bolocam, 'beam_handler_bolocam': beam_handler_bolocam,
+          'data_milca': data_milca, 'err_milca': err_milca, 'beam_handler_milca': beam_handler_milca,
+          'use_act': use_act, 'use_bolocam': use_bolocam, 'use_milca': use_milca}
 
     m = mpfit(myfunctgnfw_simul, parinfo=parinfo, functkw=fa)
 

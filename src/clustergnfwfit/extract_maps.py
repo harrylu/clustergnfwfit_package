@@ -149,6 +149,11 @@ def extract_milca_maps(ndmap_milca, coords, map_radius, res, verbose=True, even_
         sfl_milca = reproject.thumbnails(ndmap_milca, coords, r=map_radius.to(cds.arcmin).value * utils.arcmin, res=res.to(cds.arcmin).value * utils.arcmin, proj='sfl', verbose=verbose)
     gc.collect()
 
+    # only keep maps where no zero pixels (zero pixels means probably wasn't in survey)
+    mask = np.array([np.count_nonzero(ndmap) == ndmap.size for ndmap in sfl_milca])
+    sfl_milca = sfl_milca[mask]
+    coords = coords[mask]
+
     # convert micro y to microK
     freq = 143e9
     T_cmb = 2.726
@@ -204,7 +209,7 @@ def extract_act_maps_single(fpath_dict, dec, ra, map_radius, res=30 * cds.arcsec
 
 # CAREFUL! Resolution of beam handler is 10 arcsec and not the resolution of the map (10/3 arcmin)
 # This is because convolving at 10/3 arcmin pixels is too large to be very accurate, so we use 10 arcsec
-# So, input to convolve2d must have 10 arcsec resolution
+# So, input to convolve2d must have 10 arcsec resolution, then rebin to 200 arcsec pixels (10/3 arcmin)
 def extract_milca_maps_single(fpath_dict, dec, ra, map_radius, res=10/3 * cds.arcmin, verbose=True, even_maps=True):
     # radiuses must be in astropy units
     # dec in (d, m, s)
@@ -218,7 +223,7 @@ def extract_milca_maps_single(fpath_dict, dec, ra, map_radius, res=10/3 * cds.ar
     # FULL is column (field) 1
     hp_milca, header = hp.fitsfunc.read_map(fpath_dict['milca_y'], hdu=1, field=0, memmap=True, h=True)
     ndmap_milca = enmap_from_healpix_in_radius(hp_milca, (deg_dec, deg_ra), 1.5 * map_radius, res, 'car')
-
+    
     sfl_milca = extract_milca_maps(ndmap_milca, coords, map_radius, res, verbose, even_maps)[0]
 
     # diameter of 151 pixels @ 10 arcsec res has pixels at < 1% of highest
@@ -294,7 +299,9 @@ def extract_milca_maps_covar(num_maps, fpath_dict, dec, ra, pick_sample_radius, 
     
     # FULL is column (field) 1
     hp_milca, header = hp.fitsfunc.read_map(fpath_dict['milca_y'], hdu=1, field=0, memmap=True, h=True)
-    ndmap_milca = enmap_from_healpix_in_radius(hp_milca, (deg_dec, deg_ra), 1.5 * map_radius, res, 'car')
+    # a little more to avoid losing data on reproject 
+    box_radius = (map_radius + pick_sample_radius + 2 * cds.arcmin)
+    ndmap_milca = enmap_from_healpix_in_radius(hp_milca, (deg_dec, deg_ra), box_radius, res, 'car')
 
     sfl_milca = extract_milca_maps(ndmap_milca, sample_coords, map_radius, res, verbose, even_maps)
     

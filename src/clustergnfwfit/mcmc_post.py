@@ -142,10 +142,10 @@ def show_pickled_plots(dir_path):
 # dir_path should be the path to the directory containing the .pickle files
 def show_npy_plots(dir_path, figure_name_hook=None, pre_imshow_hook=None):
     for file_name in os.listdir(dir_path):
-        _, ext = os.path.splitext(file_name)
+        fname, ext = os.path.splitext(file_name)
         if ext != ".npy":
             continue
-        figure_name = file_name
+        figure_name = fname
         if figure_name_hook is not None:
             figure_name = figure_name_hook(figure_name)
         plt.figure(figure_name)
@@ -153,6 +153,7 @@ def show_npy_plots(dir_path, figure_name_hook=None, pre_imshow_hook=None):
         if pre_imshow_hook is not None:
             arr = pre_imshow_hook(arr)
         plt.imshow(arr)
+        plt.colorbar()
 
 def get_R2500_avg(map, arcseconds_per_pixel, R2500):
     """AKA get di value.
@@ -190,8 +191,7 @@ def get_R2500_avg(map, arcseconds_per_pixel, R2500):
     return np.sum(map) / num_in_R2500
 
 # returns best fit model normalized to di of 1, and 3 tuples (di, std of di) for 90, 150, bolocam
-def get_gnfw_model_and_dis(R500, R2500, nu_90, nu_150, nu_bolocam, first_fit_backend_dir_path, second_fit_backend_dir_path):
-
+def get_gnfw_model_and_dis(param_dict, nu_90, nu_150, nu_bolocam):
     def get_chain(backend_path):
         reader = emcee.backends.HDFBackend(backend_path)
         try:
@@ -209,52 +209,76 @@ def get_gnfw_model_and_dis(R500, R2500, nu_90, nu_150, nu_bolocam, first_fit_bac
         equiv = u.thermodynamic_temperature(freq, Planck15.Tcmb0)
         return ((arr) * u.uK).to(u.MJy / u.sr, equivalencies=equiv).value
 
-    first_fit_backend_path = os.path.join(first_fit_backend_dir_path, 'backend.h5')
-    second_fit_backend_path = os.path.join(second_fit_backend_dir_path, 'backend.h5')
+    first_fit_backend_path = os.path.join(os.path.join(param_dict['folder_path'], 'mcmc_first_fit'), 'backend.h5')
+    second_fit_backend_path = os.path.join(os.path.join(param_dict['folder_path'], 'mcmc_refit'), 'backend.h5')
     # samples is shape (nsamples, nwalkers, nparameters)
     first_samples = get_chain(first_fit_backend_path)
     second_samples = get_chain(second_fit_backend_path)
+    use_act = np.genfromtxt(os.path.join(param_dict['folder_path'], 'use_act.txt'), dtype=bool).item()
+    use_bolocam = np.genfromtxt(os.path.join(param_dict['folder_path'], 'use_bolocam.txt'), dtype=bool).item()
+
 
     first_medians = np.median(first_samples, axis=(0, 1))
     theta, r_x, r_y, offset_x, offset_y = first_medians[:5]
     r_z = np.sqrt(r_x*r_y)
+    first_medians = first_medians[5:]
+    if use_act:
+        _, _, c_90, c_150 = first_medians[:4]
+        first_medians = first_medians[4:]
+    if use_bolocam:
+        _, c_bolocam = first_medians[:2]
 
-    use_act = np.genfromtxt(os.path.join(first_fit_backend_dir_path, 'use_act.txt'), dtype=bool).item()
-    use_bolocam = np.genfromtxt(os.path.join(first_fit_backend_dir_path, 'use_bolocam.txt'), dtype=bool).item()
 
     # reshape -> (ntotalsamples, nparameters)
     second_samples = second_samples.reshape((-1, second_samples.shape[-1]))
     if use_act:
         samples_cbrt_p0_90 = second_samples[:, 0]
         samples_cbrt_p0_150 = second_samples[:, 1]
-    second_samples = second_samples[:, 4:]
+        second_samples = second_samples[:, 4:]
     if use_bolocam:
         samples_cbrt_p0_bolocam = second_samples[:, 0]
 
-    model_no_c = ellipsoid_model.eval_pixel_centers(theta, 1, r_x, r_y, r_z, 4, R500, offset_x=offset_x, offset_y=offset_y, img_height=470, img_width=470)
+    model_no_c = ellipsoid_model.eval_pixel_centers(theta, 1, r_x, r_y, r_z, 4, param_dict['r500'], offset_x=offset_x, offset_y=offset_y, img_height=470, img_width=470)
     
-    di_model_no_c = get_R2500_avg(model_no_c, 4, R2500)
-    dis_90 = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_90 ** 3), nu_90)
-    dis_150 = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_150 ** 3), nu_150)
-    dis_bolocam = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_bolocam ** 3), nu_bolocam)
+    models_path = os.path.join(param_dict['folder_path'], 'models')
+    if not os.path.exists(models_path):
+        os.mkdir(models_path)
 
-    di_90 = np.median(dis_90)
-    di_150 = np.median(dis_150)
-    di_bolocam = np.median(dis_bolocam)
-    sigma_90 = np.std(dis_90)
-    sigma_150 = np.std(dis_150)
-    sigma_bolocam = np.std(dis_bolocam)
+    di_model_no_c = get_R2500_avg(model_no_c, 4, param_dict['r2500'])
+    if use_act:
+        np.save(os.path.join(models_path, 'model_90'), model_no_c * np.median(samples_cbrt_p0_90 ** 3) + c_90)
+        np.save(os.path.join(models_path, 'model_150'), model_no_c * np.median(samples_cbrt_p0_150 ** 3) + c_150)
 
-    # model_90 = model_no_c * di_90 / di_model_no_c
-    # model_150 = model_no_c * di_150 / di_model_no_c
-    # model_bolocam = model_no_c * di_bolocam / di_model_no_c
+        dis_90 = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_90 ** 3), nu_90)
+        dis_150 = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_150 ** 3), nu_150)
+
+        di_90 = np.median(dis_90)
+        di_150 = np.median(dis_150)
+        sigma_90 = np.std(dis_90)
+        sigma_150 = np.std(dis_150)
+    else:
+        di_90, di_150, sigma_90, sigma_150 = None, None, None, None
+    if use_bolocam:
+        np.save(os.path.join(models_path, 'model_bolocam'), model_no_c * np.median(samples_cbrt_p0_bolocam ** 3) + c_bolocam)
+
+        dis_bolocam = convert_microkelvin_to_mjysr(di_model_no_c * (samples_cbrt_p0_bolocam ** 3), nu_bolocam)
+        
+        di_bolocam = np.median(dis_bolocam)
+        sigma_bolocam = np.std(dis_bolocam)
+    else:
+        di_bolocam, sigma_bolocam = None, None
 
     model_no_c /= di_model_no_c
 
     return model_no_c, (di_90, sigma_90), (di_150, sigma_150), (di_bolocam, sigma_bolocam)
 
-def make_fits(out_fits_fpath, first_fit_backend_dir_path, second_fit_backend_dir_path, param_dict):
-    
+def make_fits(out_fits_fpath, param_dict):
+
+    # use_act = np.genfromtxt(os.path.join(param_dict['folder_path'], 'use_act.txt'), dtype=bool).item()
+    # use_bolocam = np.genfromtxt(os.path.join(param_dict['folder_path'], 'use_bolocam.txt'), dtype=bool).item()
+    use_act = param_dict['use_act']
+    use_bolocam = param_dict['use_bolocam']
+
     hdr = fits.Header()
 
     str_date, date_comment = datetime.today().strftime('%Y-%m-%d'), "Creation UTC (CCCC-MM-DD)"
@@ -274,9 +298,15 @@ def make_fits(out_fits_fpath, first_fit_backend_dir_path, second_fit_backend_dir
     T_mw, sigma_T_mw, T_pw, sigma_T_pw = nu_and_di.get_weighted_xray_temperature(param_dict)
 
     nu_bolocam, nu_plw, nu_pmw, nu_psw = nu_and_di.calc_bolo_and_spire_band_centers(T_pw, param_dict)
-    nu_90, nu_150 = nu_and_di.get_act_band_centers(T_pw, param_dict)
+    if not use_bolocam:
+        nu_bolocam = None
+    if use_act:
+        nu_90, nu_150 = nu_and_di.get_act_band_centers(T_pw, param_dict)
+    else:
+        nu_90, nu_150 = None, None
 
-    model_no_c, (di_90, sigma_90), (di_150, sigma_150), (di_bolocam, sigma_bolocam) = get_gnfw_model_and_dis(param_dict['r500'], param_dict['r2500'], nu_90, nu_150, nu_bolocam, first_fit_backend_dir_path, second_fit_backend_dir_path)
+    # dis, sigmas are None if os.path.join(first_fit_backend_dir_path, 'use_{act or bolocam}.txt') contains False 
+    model_no_c, (di_90, sigma_90), (di_150, sigma_150), (di_bolocam, sigma_bolocam) = get_gnfw_model_and_dis(param_dict, nu_90, nu_150, nu_bolocam)
     
     tau_e = nu_and_di.fit_tau_e(nu_bolocam, nu_90, nu_150, di_bolocam, di_90, di_150, T_pw)
     print(f"tau_e: {tau_e}")
@@ -284,15 +314,17 @@ def make_fits(out_fits_fpath, first_fit_backend_dir_path, second_fit_backend_dir
     di_spire_pmw = (nu_and_di.compute_sz_spectrum(np.array([nu_pmw * 1.e9]), temperature=T_pw))[0] * 100 * tau_e
     # di_spire_psw = (nu_and_di.compute_sz_spectrum(np.array([nu_psw * 1.e9]), temperature=T_pw))[0] * 100 * tau_e
 
-    hdr['BCAMDI'] = di_bolocam
-    hdr['BCAMERR'] = sigma_bolocam
-    hdr['BCAMUNIT'] = 'MJy/sr'
-
-    hdr['ACTDI1'] = di_90
-    hdr['ACTDI2'] = di_150
-    hdr['ACTERR1'] = sigma_90
-    hdr['ACTERR2'] = sigma_150
-    hdr['ACTUNIT'] = 'MJy/sr'
+    if use_bolocam:
+        hdr['BCAMDI'] = di_bolocam
+        hdr['BCAMERR'] = sigma_bolocam
+        hdr['BCAMUNIT'] = 'MJy/sr'
+    
+    if use_act:
+        hdr['ACTDI1'] = di_90
+        hdr['ACTDI2'] = di_150
+        hdr['ACTERR1'] = sigma_90
+        hdr['ACTERR2'] = sigma_150
+        hdr['ACTUNIT'] = 'MJy/sr'
 
     hdr['REDSHIFT'] = param_dict['redshift']
     hdr['R2500'] = param_dict['r2500'] / 60     # convert to arcmin
@@ -313,9 +345,11 @@ def make_fits(out_fits_fpath, first_fit_backend_dir_path, second_fit_backend_dir
     hdr['TXRAYMW '] = T_mw
     hdr['TMWERR'] = sigma_T_mw
 
-    hdr['BOLONU0'] = (nu_bolocam, 'GHz')
-    hdr['ACTNU01'] = (nu_90, 'GHz')
-    hdr['ACTNU02'] = (nu_150, 'GHz')
+    if use_bolocam:
+        hdr['BOLONU0'] = (nu_bolocam, 'GHz')
+    if use_act:
+        hdr['ACTNU01'] = (nu_90, 'GHz')
+        hdr['ACTNU02'] = (nu_150, 'GHz')
     hdr['PLWNU0'] = (nu_plw, 'GHz')
     hdr['PMWNU0'] = (nu_pmw, 'GHz')
 

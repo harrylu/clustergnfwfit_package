@@ -127,11 +127,14 @@ def rsz_get_mass_weighted_xray_temperature():
 def get_weighted_xray_temperature(params_dict):    # redshift, cluster, cosmology, mantz_data_dir
     # use the MCMC files produced for the pressure profile project
     redshift = params_dict['redshift']
+    print(redshift)
     cluster = params_dict['mantz_cluster_name']
+    print(cluster)
     cosmology = params_dict['mantz_cosmology']
     data_dir = params_dict['mantz_data_dir']
 
-    r2500 = params_dict['r2500']
+    r2500 = params_dict['r2500_mpc']
+    print(r2500)
 
     # get the mass and scale radius
     # r500_m500_path = os.path.join(data_dir, 'Mantz_Xray_masses',
@@ -430,14 +433,35 @@ def get_act_band_centers(T_pw, params_dict):
     band_center_150 = get_act_band_center(params_dict['full_ivar_150'], T_pw)
     return band_center_90, band_center_150
 
-
+# if either nu or dI is None for a band, that band will be ignored in the fit
 def fit_tau_e(nu_bolocam, nu_90, nu_150, dI_bolocam, dI_90, dI_150, T_pw):
+    print("Fitting tau_e")
     # solve for tau_e
     # * 100 for 0.01 optical depth
-    SZ_bolocam = compute_sz_spectrum(np.array([nu_bolocam * 1.e9]), temperature=T_pw)[0] * 100
-    SZ_90 = compute_sz_spectrum(np.array([nu_90 * 1.e9]), temperature=T_pw)[0] * 100
-    SZ_150 = compute_sz_spectrum(np.array([nu_150 * 1.e9]), temperature=T_pw)[0] * 100
-    a = np.array([[SZ_bolocam, SZ_90, SZ_150]]).T
-    b = np.array([[dI_bolocam, dI_90, dI_150]]).T
+    if nu_bolocam is None or dI_bolocam is None:
+        SZ_bolocam, dI_bolocam = None, None
+    else:
+        print("Using bolocam")
+        SZ_bolocam = compute_sz_spectrum(np.array([nu_bolocam * 1.e9]), temperature=T_pw)[0] * 100
+
+    if nu_90 is None or dI_90 is None:
+        SZ_90, dI_90 = None, None
+    else:
+        print("Using ACT 90")
+        SZ_90 = compute_sz_spectrum(np.array([nu_90 * 1.e9]), temperature=T_pw)[0] * 100
+
+    if nu_150 is None or dI_150 is None:
+        SZ_150, dI_150 = None, None
+    else:
+        print("Using ACT 150")
+        SZ_150 = compute_sz_spectrum(np.array([nu_150 * 1.e9]), temperature=T_pw)[0] * 100
+    
+    a = list(filter(lambda x: x is not None, [SZ_bolocam, SZ_90, SZ_150]))
+    b = list(filter(lambda x: x is not None, [dI_bolocam, dI_90, dI_150]))
+    a = np.array([a]).T
+    b = np.array([b]).T
+
+    # a = np.array([[SZ_bolocam, SZ_90, SZ_150]]).T
+    # b = np.array([[dI_bolocam, dI_90, dI_150]]).T
 
     return np.linalg.lstsq(a, b, rcond=None)[0].item()   
